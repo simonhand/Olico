@@ -40,4 +40,111 @@ final class SettingsStoreTests: XCTestCase {
             XCTAssertEqual((error as? HotkeyValidationError), .conflicts("剪贴板"))
         }
     }
+
+    func testSaveLinkNormalizesAndPersists() throws {
+        let store = try makeStore()
+        let link = try store.saveLink(
+            id: nil,
+            title: "  文档  ",
+            url: "example.com/docs",
+            hotkey: Hotkey(keyCode: 12, modifiers: [.opt])
+        )
+        XCTAssertEqual(link.title, "文档")
+        XCTAssertEqual(link.url, "https://example.com/docs")
+        XCTAssertEqual(store.link(for: link.id)?.keyCode, 12)
+        XCTAssertEqual(store.persistedConfig().links, [link])
+    }
+
+    func testUpdateLinkKeepsItsOwnHotkey() throws {
+        let store = try makeStore()
+        let first = try store.saveLink(
+            id: nil,
+            title: "A",
+            url: "https://a.example",
+            hotkey: Hotkey(keyCode: 12, modifiers: [.opt])
+        )
+        _ = try store.saveLink(
+            id: nil,
+            title: "B",
+            url: "https://b.example",
+            hotkey: Hotkey(keyCode: 13, modifiers: [.opt])
+        )
+        let updated = try store.saveLink(
+            id: first.id,
+            title: "A2",
+            url: "https://a.example/new",
+            hotkey: Hotkey(keyCode: 12, modifiers: [.opt])
+        )
+        XCTAssertEqual(updated.id, first.id)
+        XCTAssertEqual(store.config.links.count, 2)
+        XCTAssertEqual(store.link(for: first.id)?.title, "A2")
+    }
+
+    func testRemoveLink() throws {
+        let store = try makeStore()
+        let link = try store.saveLink(
+            id: nil,
+            title: "A",
+            url: "https://a.example",
+            hotkey: Hotkey(keyCode: 12, modifiers: [.opt])
+        )
+        try store.removeLink(id: link.id)
+        XCTAssertNil(store.link(for: link.id))
+        XCTAssertTrue(store.persistedConfig().links.isEmpty)
+    }
+
+    func testLinkConflictWithBuiltin() throws {
+        let store = try makeStore()
+        XCTAssertThrowsError(
+            try store.saveLink(id: nil, title: "A", url: "https://a.example", hotkey: store.config.hotkeys.clipboard)
+        ) { error in
+            XCTAssertEqual(error as? LinkValidationError, .invalidHotkey(.conflicts("剪贴板")))
+        }
+    }
+
+    func testLinkConflictWithAnotherLink() throws {
+        let store = try makeStore()
+        _ = try store.saveLink(
+            id: nil,
+            title: "A",
+            url: "https://a.example",
+            hotkey: Hotkey(keyCode: 12, modifiers: [.opt])
+        )
+        XCTAssertThrowsError(
+            try store.saveLink(
+                id: nil,
+                title: "B",
+                url: "https://b.example",
+                hotkey: Hotkey(keyCode: 12, modifiers: [.opt])
+            )
+        ) { error in
+            XCTAssertEqual(error as? LinkValidationError, .invalidHotkey(.conflicts("A")))
+        }
+    }
+
+    func testBuiltinHotkeyConflictsWithLink() throws {
+        let store = try makeStore()
+        _ = try store.saveLink(
+            id: nil,
+            title: "A",
+            url: "https://a.example",
+            hotkey: Hotkey(keyCode: 12, modifiers: [.opt])
+        )
+        XCTAssertThrowsError(
+            try store.setBuiltinHotkey(.screenshot, Hotkey(keyCode: 12, modifiers: [.opt]))
+        ) { error in
+            XCTAssertEqual(error as? HotkeyValidationError, .conflicts("A"))
+        }
+    }
+
+    func testLinkRequiresTitleAndHTTPURL() throws {
+        let store = try makeStore()
+        let hotkey = Hotkey(keyCode: 12, modifiers: [.opt])
+        XCTAssertThrowsError(try store.saveLink(id: nil, title: "  ", url: "https://a.example", hotkey: hotkey)) { error in
+            XCTAssertEqual(error as? LinkValidationError, .emptyTitle)
+        }
+        XCTAssertThrowsError(try store.saveLink(id: nil, title: "A", url: "ftp://a.example", hotkey: hotkey)) { error in
+            XCTAssertEqual(error as? LinkValidationError, .invalidURL)
+        }
+    }
 }

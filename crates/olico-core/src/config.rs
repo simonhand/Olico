@@ -103,6 +103,40 @@ impl AppShortcut {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LinkShortcut {
+    pub id: String,
+    pub title: String,
+    pub url: String,
+    pub key_code: u32,
+    pub modifiers: Vec<Modifier>,
+    pub enabled: bool,
+}
+
+impl Default for LinkShortcut {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            title: String::new(),
+            url: String::new(),
+            key_code: 0,
+            modifiers: Vec::new(),
+            enabled: true,
+        }
+    }
+}
+
+impl LinkShortcut {
+    fn canonical(&self) -> String {
+        Hotkey {
+            key_code: self.key_code,
+            modifiers: self.modifiers.clone(),
+        }
+        .canonical()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ColorFormat {
@@ -177,6 +211,7 @@ pub struct Config {
     pub version: u32,
     pub hotkeys: HotkeySet,
     pub shortcuts: Vec<AppShortcut>,
+    pub links: Vec<LinkShortcut>,
     pub clipboard: ClipboardConfig,
     pub screenshot: ScreenshotConfig,
     pub residency: ResidencyConfig,
@@ -188,6 +223,7 @@ impl Default for Config {
             version: CONFIG_VERSION,
             hotkeys: HotkeySet::default(),
             shortcuts: Vec::new(),
+            links: Vec::new(),
             clipboard: ClipboardConfig::default(),
             screenshot: ScreenshotConfig::default(),
             residency: ResidencyConfig::default(),
@@ -331,6 +367,51 @@ impl Config {
                     )));
                 }
                 app_hotkeys.push(canonical);
+            }
+        }
+
+        let mut link_ids = Vec::new();
+        let mut link_hotkeys = Vec::new();
+        for link in &self.links {
+            if link.id.trim().is_empty() {
+                return Err(CoreError::Config("link id must not be empty".into()));
+            }
+            if link_ids.contains(&link.id) {
+                return Err(CoreError::Config(format!("duplicate link id {}", link.id)));
+            }
+            link_ids.push(link.id.clone());
+            if link.title.trim().is_empty() {
+                return Err(CoreError::Config(format!(
+                    "link {} title must not be empty",
+                    link.id
+                )));
+            }
+            if !(link.url.starts_with("http://") || link.url.starts_with("https://")) {
+                return Err(CoreError::Config(format!(
+                    "link {} url must start with http(s)://",
+                    link.id
+                )));
+            }
+            if link.enabled {
+                let canonical = link.canonical();
+                if builtin.contains(&canonical) {
+                    return Err(CoreError::Config(format!(
+                        "link {} conflicts with builtin hotkey {canonical}",
+                        link.id
+                    )));
+                }
+                if app_hotkeys.contains(&canonical) {
+                    return Err(CoreError::Config(format!(
+                        "link {} conflicts with app shortcut hotkey {canonical}",
+                        link.id
+                    )));
+                }
+                if link_hotkeys.contains(&canonical) {
+                    return Err(CoreError::Config(format!(
+                        "duplicate link hotkey {canonical}"
+                    )));
+                }
+                link_hotkeys.push(canonical);
             }
         }
 

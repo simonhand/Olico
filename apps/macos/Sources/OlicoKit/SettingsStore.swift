@@ -1,6 +1,20 @@
 import Foundation
 import Combine
 
+public enum LinkValidationError: Error, Equatable, LocalizedError {
+    case emptyTitle
+    case invalidURL
+    case invalidHotkey(HotkeyValidationError)
+
+    public var errorDescription: String? {
+        switch self {
+        case .emptyTitle: return "名称不能为空"
+        case .invalidURL: return "请输入有效的 http 或 https 链接"
+        case .invalidHotkey(let reason): return "快捷键无效：\(reason.localizedDescription)"
+        }
+    }
+}
+
 public final class SettingsStore: ObservableObject {
     @Published public var config: AppConfig
     @Published public private(set) var apps: [AppEntry] = []
@@ -62,6 +76,9 @@ public final class SettingsStore: ObservableObject {
         for shortcut in config.shortcuts where shortcut.enabled {
             existing.append((name(for: shortcut.target), shortcut.hotkey))
         }
+        for link in config.links where link.enabled {
+            existing.append((link.title, link.hotkey))
+        }
         if let error = HotkeyValidator.validate(hotkey: hotkey, conflictsWith: existing) {
             throw error
         }
@@ -80,6 +97,9 @@ public final class SettingsStore: ObservableObject {
         }
         for shortcut in config.shortcuts where shortcut.enabled && shortcut.target != app.bundleID {
             existing.append((name(for: shortcut.target), shortcut.hotkey))
+        }
+        for link in config.links where link.enabled {
+            existing.append((link.title, link.hotkey))
         }
         if let error = HotkeyValidator.validate(hotkey: hotkey, conflictsWith: existing) {
             throw error
@@ -101,6 +121,57 @@ public final class SettingsStore: ObservableObject {
 
     public func removeShortcut(bundleID: String) throws {
         config.shortcuts.removeAll { $0.target == bundleID }
+        try saveConfig()
+    }
+
+    public func link(for id: String) -> LinkShortcut? {
+        config.links.first { $0.id == id }
+    }
+
+    @discardableResult
+    public func saveLink(
+        id: String?,
+        title: String,
+        url: String,
+        hotkey: Hotkey
+    ) throws -> LinkShortcut {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty else { throw LinkValidationError.emptyTitle }
+        guard let normalized = LinkLauncher.normalizedURL(url) else {
+            throw LinkValidationError.invalidURL
+        }
+
+        var existing: [(label: String, hotkey: Hotkey)] = HotkeySlot.allCases.map {
+            ($0.label, self.hotkey(for: $0))
+        }
+        for shortcut in config.shortcuts where shortcut.enabled {
+            existing.append((name(for: shortcut.target), shortcut.hotkey))
+        }
+        for other in config.links where other.enabled && other.id != id {
+            existing.append((other.title, other.hotkey))
+        }
+        if let error = HotkeyValidator.validate(hotkey: hotkey, conflictsWith: existing) {
+            throw LinkValidationError.invalidHotkey(error)
+        }
+
+        let link = LinkShortcut(
+            id: id ?? UUID().uuidString,
+            title: trimmedTitle,
+            url: normalized.absoluteString,
+            keyCode: hotkey.keyCode,
+            modifiers: hotkey.modifiers
+        )
+        if let index = config.links.firstIndex(where: { $0.id == link.id }) {
+            config.links[index] = link
+        } else {
+            config.links.append(link)
+        }
+        try saveConfig()
+        return link
+    }
+
+    public func removeLink(id: String) throws {
+        config.links.removeAll { $0.id == id }
         try saveConfig()
     }
 

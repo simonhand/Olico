@@ -72,4 +72,41 @@ final class ConfigTransferTests: XCTestCase {
             XCTAssertEqual(error as? ConfigTransferError, .decodeFailed)
         }
     }
+
+    func testDecodeWithoutLinksKeyDefaultsToEmpty() throws {
+        var config = sampleConfig()
+        config.links = [
+            LinkShortcut(
+                id: "docs",
+                title: "文档",
+                url: "https://example.com",
+                keyCode: 2,
+                modifiers: [.opt]
+            ),
+        ]
+        let data = try ConfigTransfer.encode(config)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        object.removeValue(forKey: "links")
+        let stripped = try JSONSerialization.data(withJSONObject: object)
+
+        let restored = try ConfigTransfer.decode(stripped)
+        XCTAssertEqual(restored.links, [])
+    }
+
+    func testDecodeRejectsLinkHotkeyConflict() throws {
+        var config = sampleConfig()
+        config.links = [
+            LinkShortcut(
+                id: "docs",
+                title: "文档",
+                url: "https://example.com",
+                keyCode: 9,
+                modifiers: [.cmd, .shift]
+            ),
+        ]
+        let data = try ConfigTransfer.encode(config)
+        XCTAssertThrowsError(try ConfigTransfer.decode(data)) { error in
+            XCTAssertEqual((error as? ConfigTransferError), .invalidHotkey("文档", .conflicts("剪贴板")))
+        }
+    }
 }

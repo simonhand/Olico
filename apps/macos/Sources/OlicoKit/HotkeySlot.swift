@@ -18,4 +18,5 @@ public enum HotkeySlot: String, CaseIterable, Identifiable {
 public enum HotkeyAction: Equatable {
     case builtin(HotkeySlot)
     case app(target: String, path: String)
+    case link(id: String)
 }

@@ -1,4 +1,6 @@
 import AppKit
+import ApplicationServices
+import CoreGraphics
 import OlicoKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -73,7 +75,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     let entry = AppEntry(bundleID: target, name: target, path: path)
                     DispatchQueue.global(qos: .userInitiated).async {
                         do {
-                            try AppLauncher.activateOrLaunch(entry)
+                            let result = try AppLauncher.toggle(entry)
+                            logger.log("hotkey: \(result == .hidden ? "hide" : "activate") \(target)")
                         } catch {
                             logger.log("launch failed for \(target): \(error.localizedDescription)")
                         }
@@ -88,6 +91,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     logger.log("hotkey: color picker requested")
                 case .builtin(.togglePins):
                     logger.log("hotkey: toggle pins requested")
+                case .link(let id):
+                    guard let link = store.config.links.first(where: { $0.id == id }),
+                          let url = LinkLauncher.normalizedURL(link.url)
+                    else {
+                        logger.log("hotkey: link \(id) unavailable")
+                        return
+                    }
+                    logger.log("hotkey: open link \(link.title)")
+                    LinkLauncher.open(url)
                 }
             }
             store.conflicts = center.reload(config: store.config)
@@ -134,7 +146,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if CommandLine.arguments.contains("--settings") {
                 showSettings()
             }
-            logger.log("Olico started")
+            logger.log("Olico started ax=\(AXIsProcessTrusted()) screen=\(CGPreflightScreenCaptureAccess())")
         } catch {
             logger.log("startup failed: \(error.localizedDescription)")
             statusItemController = StatusItemController(
@@ -179,7 +191,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startHealthCheck() {
         healthTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             guard let self, let store = self.store else { return }
-            let expected = HotkeySlot.allCases.count + store.config.shortcuts.filter(\.enabled).count
+            let expected = HotkeySlot.allCases.count
+                + store.config.shortcuts.filter(\.enabled).count
+                + store.config.links.filter(\.enabled).count
             if self.hotkeyCenter?.registeredCount != expected {
                 self.logger?.log("health: hotkey count mismatch, reloading")
                 store.conflicts = self.hotkeyCenter?.reload(config: store.config) ?? [:]

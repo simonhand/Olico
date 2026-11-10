@@ -1,4 +1,4 @@
-use olico_core::config::{AppShortcut, Config, Hotkey, Modifier};
+use olico_core::config::{AppShortcut, Config, Hotkey, LinkShortcut, Modifier};
 use std::fs;
 use tempfile::tempdir;
 
@@ -94,5 +94,74 @@ fn modifier_order_does_not_affect_duplicate_detection() {
         key_code: 9,
         modifiers: vec![Modifier::Shift, Modifier::Cmd],
     };
+    assert_eq!(cfg.validate().unwrap_err().code(), "config_error");
+}
+
+fn link(id: &str, key_code: u32, modifiers: Vec<Modifier>) -> LinkShortcut {
+    LinkShortcut {
+        id: id.into(),
+        title: format!("Link {id}"),
+        url: "https://example.com".into(),
+        key_code,
+        modifiers,
+        enabled: true,
+    }
+}
+
+#[test]
+fn links_roundtrip() {
+    let dir = tempdir().unwrap();
+    let mut cfg = Config::default();
+    cfg.links = vec![link("docs", 2, vec![Modifier::Cmd, Modifier::Opt])];
+    cfg.save(dir.path()).unwrap();
+    let loaded = Config::load(dir.path()).unwrap();
+    assert_eq!(loaded.links, cfg.links);
+}
+
+#[test]
+fn config_without_links_loads_empty() {
+    let dir = tempdir().unwrap();
+    fs::write(dir.path().join("config.json"), r#"{"version": 2}"#).unwrap();
+    let cfg = Config::load(dir.path()).unwrap();
+    assert!(cfg.links.is_empty());
+}
+
+#[test]
+fn link_conflicts_with_builtin_app_or_other_link() {
+    let mut cfg = Config::default();
+    cfg.links = vec![link("builtin", 9, vec![Modifier::Cmd, Modifier::Shift])];
+    assert_eq!(cfg.validate().unwrap_err().code(), "config_error");
+
+    let mut cfg = Config::default();
+    cfg.shortcuts = vec![AppShortcut {
+        target: "com.example.app".into(),
+        path: "/Applications/Example.app".into(),
+        key_code: 2,
+        modifiers: vec![Modifier::Cmd],
+        enabled: true,
+    }];
+    cfg.links = vec![link("app", 2, vec![Modifier::Cmd])];
+    assert_eq!(cfg.validate().unwrap_err().code(), "config_error");
+
+    let mut cfg = Config::default();
+    cfg.links = vec![
+        link("a", 2, vec![Modifier::Cmd, Modifier::Opt]),
+        link("b", 2, vec![Modifier::Opt, Modifier::Cmd]),
+    ];
+    assert_eq!(cfg.validate().unwrap_err().code(), "config_error");
+}
+
+#[test]
+fn link_requires_title_and_http_url() {
+    let mut cfg = Config::default();
+    let mut bad = link("bad-url", 2, vec![Modifier::Cmd]);
+    bad.url = "example.com".into();
+    cfg.links = vec![bad];
+    assert_eq!(cfg.validate().unwrap_err().code(), "config_error");
+
+    let mut cfg = Config::default();
+    let mut bad = link("bad-title", 3, vec![Modifier::Cmd]);
+    bad.title = "   ".into();
+    cfg.links = vec![bad];
     assert_eq!(cfg.validate().unwrap_err().code(), "config_error");
 }

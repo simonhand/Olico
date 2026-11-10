@@ -12,7 +12,25 @@ public enum AppLaunchError: Error, LocalizedError {
     }
 }
 
+public enum AppToggleResult: Equatable {
+    case activated
+    case hidden
+}
+
 public enum AppLauncher {
+    /// Brings the app forward, or hides it again when it is already frontmost.
+    @discardableResult
+    public static func toggle(_ entry: AppEntry) throws -> AppToggleResult {
+        if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == entry.bundleID {
+            for instance in NSRunningApplication.runningApplications(withBundleIdentifier: entry.bundleID) {
+                instance.hide()
+            }
+            return .hidden
+        }
+        try activateOrLaunch(entry)
+        return .activated
+    }
+
     public static func activateOrLaunch(_ entry: AppEntry) throws {
         if let running = NSRunningApplication.runningApplications(withBundleIdentifier: entry.bundleID).first {
             running.unhide()

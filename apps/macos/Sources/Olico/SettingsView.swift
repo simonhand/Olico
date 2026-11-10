@@ -63,6 +63,8 @@ struct SettingsView: View {
         switch selection {
         case .apps:
             AppsSettingsView(store: store, recording: $recording)
+        case .links:
+            LinksSettingsView(store: store, hotkeyCenter: hotkeyCenter)
         case .clipboard:
             ClipboardSettingsView(store: store)
         case .screenshot:

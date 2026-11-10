@@ -58,6 +58,12 @@ public enum ConfigTransfer {
             }
             existing.append((shortcut.target, shortcut.hotkey))
         }
+        for link in config.links where link.enabled {
+            if let reason = HotkeyValidator.validate(hotkey: link.hotkey, conflictsWith: existing) {
+                throw ConfigTransferError.invalidHotkey(link.title, reason)
+            }
+            existing.append((link.title, link.hotkey))
+        }
     }
 
     private static func hotkey(for slot: HotkeySlot, in config: AppConfig) -> Hotkey {

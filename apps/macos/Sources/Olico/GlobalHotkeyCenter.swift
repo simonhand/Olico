@@ -89,6 +89,16 @@ public final class GlobalHotkeyCenter {
             )
             nextID += 1
         }
+        for link in config.links where link.enabled {
+            register(
+                link.hotkey,
+                action: .link(id: link.id),
+                id: nextID,
+                label: link.title,
+                failures: &failures
+            )
+            nextID += 1
+        }
         return failures
     }
 

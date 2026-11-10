@@ -2,13 +2,14 @@ import SwiftUI
 import OlicoKit
 
 enum SettingsSection: CaseIterable, Identifiable {
-    case apps, clipboard, screenshot, general
+    case apps, links, clipboard, screenshot, general
 
     var id: Self { self }
 
     var title: String {
         switch self {
         case .apps: return "应用"
+        case .links: return "链接"
         case .clipboard: return "剪贴板"
         case .screenshot: return "截图"
         case .general: return "通用"
@@ -18,6 +19,7 @@ enum SettingsSection: CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .apps: return "square.grid.2x2.fill"
+        case .links: return "link"
         case .clipboard: return "doc.on.clipboard.fill"
         case .screenshot: return "camera.viewfinder"
         case .general: return "gearshape.fill"
@@ -27,6 +29,7 @@ enum SettingsSection: CaseIterable, Identifiable {
     var tint: Color {
         switch self {
         case .apps: return .blue
+        case .links: return .green
         case .clipboard: return .purple
         case .screenshot: return .orange
         case .general: return .gray
