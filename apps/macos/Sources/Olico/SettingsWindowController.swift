@@ -7,17 +7,29 @@ final class SettingsWindowController {
     private let store: SettingsStore
     private let launchAgent: LaunchAgent
     private let logger: AppLogger
+    private let hotkeyCenter: GlobalHotkeyCenter
 
-    init(store: SettingsStore, launchAgent: LaunchAgent, logger: AppLogger) {
+    init(
+        store: SettingsStore,
+        launchAgent: LaunchAgent,
+        logger: AppLogger,
+        hotkeyCenter: GlobalHotkeyCenter
+    ) {
         self.store = store
         self.launchAgent = launchAgent
         self.logger = logger
+        self.hotkeyCenter = hotkeyCenter
     }
 
     func show() {
         if window == nil {
             let hosting = NSHostingController(
-                rootView: SettingsView(store: store, launchAgent: launchAgent, logger: logger)
+                rootView: SettingsView(
+                    store: store,
+                    launchAgent: launchAgent,
+                    logger: logger,
+                    hotkeyCenter: hotkeyCenter
+                )
             )
             hosting.sizingOptions = []
             let window = NSWindow(contentViewController: hosting)

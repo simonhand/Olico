@@ -25,6 +25,7 @@ struct SettingsView: View {
     @ObservedObject var store: SettingsStore
     let launchAgent: LaunchAgent
     let logger: AppLogger
+    let hotkeyCenter: GlobalHotkeyCenter
 
     @State private var selection: SettingsSection = .apps
     @State private var recording: RecordingTarget?
@@ -48,6 +49,12 @@ struct SettingsView: View {
                 recording = nil
             } onCancel: {
                 recording = nil
+            }
+            // Carbon hotkeys consume their key events process-wide, which would
+            // make the currently assigned chord impossible to re-record.
+            .onAppear { hotkeyCenter.suspend() }
+            .onDisappear {
+                store.conflicts = hotkeyCenter.resume(config: store.persistedConfig())
             }
         }
     }

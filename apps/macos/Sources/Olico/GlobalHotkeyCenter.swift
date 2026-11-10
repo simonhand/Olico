@@ -8,6 +8,7 @@ public final class GlobalHotkeyCenter {
     private var registrations: [UInt32: EventHotKeyRef] = [:]
     private var actions: [UInt32: HotkeyAction] = [:]
     private let lock = NSLock()
+    private var isSuspended = false
 
     public var onAction: ((HotkeyAction) -> Void)?
 
@@ -56,8 +57,20 @@ public final class GlobalHotkeyCenter {
         return registrations.count
     }
 
+    public func suspend() {
+        isSuspended = true
+        unregisterAll()
+    }
+
+    @discardableResult
+    public func resume(config: AppConfig) -> [String: String] {
+        isSuspended = false
+        return reload(config: config)
+    }
+
     @discardableResult
     public func reload(config: AppConfig) -> [String: String] {
+        guard !isSuspended else { return [:] }
         unregisterAll()
         var failures: [String: String] = [:]
         var nextID: UInt32 = 1

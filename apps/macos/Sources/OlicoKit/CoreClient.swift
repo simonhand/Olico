@@ -73,6 +73,36 @@ public final class CoreClient {
         _ = try call("config_set", payload: ["config": object])
     }
 
+    @discardableResult
+    public func clipboardAdd(
+        kind: ClipboardKind,
+        text: String? = nil,
+        filePaths: [String] = [],
+        imagePath: String? = nil,
+        sourceBundle: String? = nil,
+        sourceName: String? = nil,
+        byteSize: Int64 = 0
+    ) throws -> ClipboardItem {
+        var payload: [String: Any] = [
+            "kind": kind.rawValue,
+            "file_paths": filePaths,
+            "byte_size": byteSize,
+        ]
+        if let text { payload["text"] = text }
+        if let imagePath { payload["image_path"] = imagePath }
+        if let sourceBundle { payload["source_bundle"] = sourceBundle }
+        if let sourceName { payload["source_name"] = sourceName }
+        return try call("clipboard_add", payload: payload, as: ClipboardItem.self)
+    }
+
+    public func clipboardList(text: String = "", limit: UInt32 = 200) throws -> [ClipboardItem] {
+        try call(
+            "clipboard_list",
+            payload: ["text": text, "limit": limit],
+            as: [ClipboardItem].self
+        )
+    }
+
     public func clipboardClear() throws {
         _ = try call("clipboard_clear")
     }

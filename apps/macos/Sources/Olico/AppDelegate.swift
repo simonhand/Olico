@@ -10,6 +10,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var logger: AppLogger?
     private var singleInstance: SingleInstance?
     private var healthTimer: Timer?
+    private var clipboardMonitor: ClipboardMonitor?
+    private var clipboardPanel: ClipboardPanelController?
+    private var screenshotController: ScreenshotController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -42,10 +45,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 plistURL: LaunchAgent.defaultPlistURL(),
                 executablePath: Bundle.main.executablePath ?? CommandLine.arguments[0]
             )
+            let monitor = ClipboardMonitor(
+                client: client,
+                imagesDir: support.appendingPathComponent("images")
+            )
+            monitor.onError = { message in logger.log("clipboard: \(message)") }
+
             let store = try SettingsStore(client: client, catalog: catalog) { config in
-                center.reload(config: config)
+                monitor.apply(config.clipboard)
+                return center.reload(config: config)
             }
             store.reloadApps()
+
+            monitor.apply(store.config.clipboard)
+            monitor.start()
+            self.clipboardMonitor = monitor
+
+            let clipboardPanel = ClipboardPanelController(client: client, logger: logger)
+            self.clipboardPanel = clipboardPanel
+
+            let screenshotController = ScreenshotController(logger: logger)
+            self.screenshotController = screenshotController
 
             center.onAction = { action in
                 switch action {
@@ -60,8 +80,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     }
                 case .builtin(.screenshot):
                     logger.log("hotkey: screenshot requested")
+                    screenshotController.start(config: store.config)
                 case .builtin(.clipboard):
-                    logger.log("hotkey: clipboard requested")
+                    logger.log("hotkey: clipboard panel toggled")
+                    clipboardPanel.toggle()
                 case .builtin(.colorPicker):
                     logger.log("hotkey: color picker requested")
                 case .builtin(.togglePins):
@@ -73,9 +95,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.store = store
             self.hotkeyCenter = center
             self.launchAgent = agent
-            self.settingsWindow = SettingsWindowController(store: store, launchAgent: agent, logger: logger)
+            self.settingsWindow = SettingsWindowController(
+                store: store,
+                launchAgent: agent,
+                logger: logger,
+                hotkeyCenter: center
+            )
 
             statusItemController = StatusItemController(
+                onScreenshot: { screenshotController.start(config: store.config) },
+                onClipboard: { clipboardPanel.toggle() },
                 onSettings: { [weak self] in self?.showSettings() },
                 onQuit: { NSApp.terminate(nil) }
             )
@@ -109,6 +138,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } catch {
             logger.log("startup failed: \(error.localizedDescription)")
             statusItemController = StatusItemController(
+                onScreenshot: {},
+                onClipboard: {},
                 onSettings: { [weak self] in self?.showSettings() },
                 onQuit: { NSApp.terminate(nil) }
             )
@@ -117,6 +148,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         healthTimer?.invalidate()
+        clipboardMonitor?.stop()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import OlicoKit
 
@@ -63,5 +64,39 @@ final class HotkeyTests: XCTestCase {
             hotkey: Hotkey(keyCode: 1, modifiers: [.opt, .shift]),
             conflictsWith: [("剪贴板", Hotkey(keyCode: 9, modifiers: [.cmd, .shift]))]
         ))
+    }
+
+    func testCaptureRecordsThreeKeyChord() {
+        let hotkey = HotkeyCapture.hotkey(keyCode: 9, flags: [.command, .shift])
+        XCTAssertEqual(hotkey, Hotkey(keyCode: 9, modifiers: [.cmd, .shift]))
+        XCTAssertEqual(hotkey.map(HotkeyFormatter.display), "⌘⇧V")
+        XCTAssertNil(hotkey.flatMap {
+            HotkeyValidator.validate(hotkey: $0, conflictsWith: [])
+        })
+    }
+
+    func testCaptureRecordsAllFourModifiers() {
+        let hotkey = HotkeyCapture.hotkey(
+            keyCode: 0,
+            flags: [.command, .option, .control, .shift]
+        )
+        XCTAssertEqual(hotkey?.modifiers, [.cmd, .opt, .ctrl, .shift])
+    }
+
+    func testCaptureMapsFunctionKeyWithoutModifiers() {
+        let hotkey = HotkeyCapture.hotkey(keyCode: 122, flags: [])
+        XCTAssertEqual(hotkey, Hotkey(keyCode: 122, modifiers: []))
+        XCTAssertNil(hotkey.flatMap {
+            HotkeyValidator.validate(hotkey: $0, conflictsWith: [])
+        })
+    }
+
+    func testEscapeIsNotCaptured() {
+        XCTAssertNil(HotkeyCapture.hotkey(keyCode: HotkeyCapture.cancelKeyCode, flags: []))
+    }
+
+    func testCaptureIgnoresCapsLockAndNumericPad() {
+        let hotkey = HotkeyCapture.hotkey(keyCode: 9, flags: [.command, .capsLock, .numericPad])
+        XCTAssertEqual(hotkey?.modifiers, [.cmd])
     }
 }

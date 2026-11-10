@@ -89,27 +89,54 @@ private final class KeyCaptureNSView: NSView {
     var onCapture: ((Hotkey) -> Void)?
     var onCancel: (() -> Void)?
 
+    private var monitor: Any?
+
     override var acceptsFirstResponder: Bool { true }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        guard window != nil else {
+            removeMonitor()
+            return
+        }
+        installMonitor()
         DispatchQueue.main.async { [weak self] in
             guard let self, let window = self.window else { return }
             window.makeFirstResponder(self)
         }
     }
 
-    override func keyDown(with event: NSEvent) {
-        if event.keyCode == 53 {
-            onCancel?()
-            return
+    deinit {
+        // NSEvent.removeMonitor must run on the main thread.
+        if let monitor {
+            DispatchQueue.main.async { NSEvent.removeMonitor(monitor) }
         }
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        var modifiers: [Modifier] = []
-        if flags.contains(.command) { modifiers.append(.cmd) }
-        if flags.contains(.option) { modifiers.append(.opt) }
-        if flags.contains(.control) { modifiers.append(.ctrl) }
-        if flags.contains(.shift) { modifiers.append(.shift) }
-        onCapture?(Hotkey(keyCode: UInt32(event.keyCode), modifiers: modifiers))
+    }
+
+    // A local monitor sees the key before the window's responder chain, so
+    // command combinations and three-key chords cannot be swallowed by menus
+    // or by a missing first responder.
+    private func installMonitor() {
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, self.window != nil else { return event }
+            if event.isARepeat { return nil }
+            if event.keyCode == HotkeyCapture.cancelKeyCode {
+                self.onCancel?()
+                return nil
+            }
+            guard let hotkey = HotkeyCapture.hotkey(
+                keyCode: UInt32(event.keyCode),
+                flags: event.modifierFlags
+            ) else { return nil }
+            self.onCapture?(hotkey)
+            return nil
+        }
+    }
+
+    private func removeMonitor() {
+        guard let monitor else { return }
+        NSEvent.removeMonitor(monitor)
+        self.monitor = nil
     }
 }
