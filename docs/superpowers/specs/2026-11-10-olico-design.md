@@ -122,8 +122,10 @@ struct Item {
 enum Action {
     OpenApp { path: String },
     OpenPath { path: String },
-    RunBuiltin { name: String },   // clipboard_history / settings / quit / web_search / calculator_copy
-    WindowAction { name: String }, // left / right / maximize / center
+    OpenUrl { url: String },        // 网页搜索
+    CopyText { text: String },      // 计算器结果复制
+    RunBuiltin { name: String },    // clipboard_history / settings / quit
+    WindowAction { name: String },  // left / right / maximize / center
 }
 
 struct Query {
