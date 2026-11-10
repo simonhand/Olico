@@ -1,7 +1,7 @@
 # Olico 设计文档
 
 - 日期：2026-11-10
-- 状态：待评审
+- 状态：已评审（2026-11-10）
 - 版本：1.0
 - 范围：第一期（MVP）
 
@@ -109,7 +109,7 @@ Olico/
 enum ItemKind { Application, File, BuiltinCommand, WindowAction }
 
 struct Item {
-    id: String,          // 应用=BunId/可执行路径，文件=绝对路径，命令="cmd:xxx"
+    id: String,          // 应用=Bundle ID/可执行路径，文件=绝对路径，命令="cmd:xxx"
     kind: ItemKind,
     title: String,
     subtitle: String,
@@ -134,6 +134,20 @@ struct Query {
 }
 
 struct Result { item: Item, score: f32, match_ranges: Vec<(u32, u32)> }
+
+enum ClipboardKind { Text, Image, File }
+
+struct ClipboardItem {
+    id: String,
+    kind: ClipboardKind,
+    text: Option<String>,       // 文本内容
+    file_path: Option<String>,  // 图片/文件的本地路径
+    hash: String,               // 去重键
+    source_app: Option<String>,
+    created_at: i64,
+    pinned: bool,
+    use_count: u32,
+}
 ```
 
 ### 5.2 模块职责
