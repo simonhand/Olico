@@ -36,6 +36,7 @@ struct AppsSettingsView: View {
                         }
                         .padding(12)
                     }
+                    .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
@@ -45,8 +46,9 @@ struct AppsSettingsView: View {
                     SettingsSearchField(text: $store.searchText, placeholder: "搜索应用名称或 Bundle ID")
                     Toggle("仅显示已设置", isOn: $store.onlyConfigured)
                         .toggleStyle(.switch)
-                        .controlSize(.mini)
+                        .controlSize(.small)
                         .font(.system(size: 11))
+                        .fixedSize()
                     Button {
                         store.reloadApps()
                     } label: {

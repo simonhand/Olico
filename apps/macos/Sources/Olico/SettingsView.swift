@@ -26,18 +26,8 @@ struct SettingsView: View {
     let launchAgent: LaunchAgent
     let logger: AppLogger
 
-    @State private var selection: SettingsSection = SettingsView.initialSection()
+    @State private var selection: SettingsSection = .apps
     @State private var recording: RecordingTarget?
-
-    // TEMP screenshot hook
-    private static func initialSection() -> SettingsSection {
-        switch ProcessInfo.processInfo.environment["OLICO_DEBUG_SECTION"] {
-        case "clipboard": return .clipboard
-        case "screenshot": return .screenshot
-        case "general": return .general
-        default: return .apps
-        }
-    }
 
     var body: some View {
         HStack(spacing: 0) {

@@ -74,6 +74,7 @@ struct SettingsCard<Content: View>: View {
         VStack(alignment: .leading, spacing: 0) {
             content
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(CardBackground())
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }

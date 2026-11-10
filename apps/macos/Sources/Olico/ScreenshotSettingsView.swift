@@ -60,6 +60,9 @@ struct ScreenshotSettingsView: View {
 
             SettingsCard {
                 HStack {
+                    Text("修改保存目录、取色格式或贴图设置后，点击保存生效。")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
                     Spacer()
                     Button("保存") { try? store.saveConfig() }
                         .buttonStyle(.borderedProminent)
