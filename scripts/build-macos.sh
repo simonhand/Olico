@@ -16,18 +16,23 @@ if [[ "${1:-}" == "--universal" ]]; then
     "$ROOT/target/x86_64-apple-darwin/release/libolico_ffi.a" \
     -output "$ROOT/apps/macos/Vendor/libolico_ffi.a"
   swift build --package-path "$ROOT/apps/macos" -c release --arch arm64 --arch x86_64
-  BINARY="$(swift build --package-path "$ROOT/apps/macos" -c release --arch arm64 --arch x86_64 --show-bin-path)/Olico"
+  BIN_DIR="$(swift build --package-path "$ROOT/apps/macos" -c release --arch arm64 --arch x86_64 --show-bin-path)"
+  BINARY="$BIN_DIR/Olico"
 else
   cargo build --release -p olico-ffi --target "$HOST_TARGET"
   cp "$ROOT/target/$HOST_TARGET/release/libolico_ffi.a" "$ROOT/apps/macos/Vendor/libolico_ffi.a"
   swift build --package-path "$ROOT/apps/macos" -c release
-  BINARY="$(swift build --package-path "$ROOT/apps/macos" -c release --show-bin-path)/Olico"
+  BIN_DIR="$(swift build --package-path "$ROOT/apps/macos" -c release --show-bin-path)"
+  BINARY="$BIN_DIR/Olico"
 fi
 
 APP="$ROOT/build/Olico.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BINARY" "$APP/Contents/MacOS/Olico"
+for bundle in "$BIN_DIR"/*.bundle; do
+  [[ -e "$bundle" ]] && cp -R "$bundle" "$APP/Contents/Resources/"
+done
 sed "s/__VERSION__/$VERSION/g" "$ROOT/apps/macos/Resources/Info.plist" > "$APP/Contents/Info.plist"
 
 if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then

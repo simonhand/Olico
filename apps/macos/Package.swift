@@ -27,7 +27,8 @@ let package = Package(
         .executableTarget(
             name: "Olico",
             dependencies: ["OlicoKit"],
-            path: "Sources/Olico"
+            path: "Sources/Olico",
+            resources: [.process("Resources")]
         ),
         .testTarget(
             name: "OlicoKitTests",

@@ -22,8 +22,13 @@ final class SettingsWindowController {
             hosting.sizingOptions = []
             let window = NSWindow(contentViewController: hosting)
             window.title = "Olico 设置"
-            window.setContentSize(NSSize(width: 920, height: 640))
-            window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+            window.setContentSize(NSSize(width: 960, height: 640))
+            window.minSize = NSSize(width: 900, height: 600)
+            window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
+            window.isOpaque = false
+            window.backgroundColor = .clear
             window.isReleasedWhenClosed = false
             window.center()
             self.window = window

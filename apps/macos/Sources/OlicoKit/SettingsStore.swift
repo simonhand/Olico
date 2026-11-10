@@ -124,6 +124,25 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
+    public func importConfig(_ imported: AppConfig, agent: LaunchAgent) throws {
+        let previous = config
+        config = imported
+        do {
+            if imported.residency.launchAtLogin != agent.isEnabled() {
+                if imported.residency.launchAtLogin {
+                    try agent.install()
+                } else {
+                    try agent.uninstall()
+                }
+            }
+            try saveConfig()
+        } catch {
+            config = previous
+            lastError = error.localizedDescription
+            throw error
+        }
+    }
+
     public func setLaunchAtLogin(_ enabled: Bool, agent: LaunchAgent) throws {
         do {
             if enabled {

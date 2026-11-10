@@ -14,8 +14,20 @@ final class HotkeyTests: XCTestCase {
         XCTAssertEqual(HotkeyFormatter.display(Hotkey(keyCode: 49, modifiers: [.ctrl])), "⌃Space")
     }
 
-    func testBareKeyIsRejected() {
-        let error = HotkeyValidator.validate(
+    func testKeyNameExcludesModifiers() {
+        XCTAssertEqual(HotkeyFormatter.keyName(for: 1), "S")
+        XCTAssertEqual(HotkeyFormatter.keyName(for: 49), "Space")
+        XCTAssertEqual(HotkeyFormatter.keyName(for: 999), "Key999")
+    }
+
+    func testModifierSymbols() {
+        XCTAssertEqual(HotkeyFormatter.symbol(for: .cmd), "⌘")
+        XCTAssertEqual(HotkeyFormatter.symbol(for: .opt), "⌥")
+        XCTAssertEqual(HotkeyFormatter.symbol(for: .ctrl), "⌃")
+        XCTAssertEqual(HotkeyFormatter.symbol(for: .shift), "⇧")
+    }
+
+    func testBareKeyIsRejected() {        let error = HotkeyValidator.validate(
             hotkey: Hotkey(keyCode: 0, modifiers: []),
             conflictsWith: []
         )

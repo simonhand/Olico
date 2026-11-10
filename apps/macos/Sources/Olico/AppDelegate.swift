@@ -12,6 +12,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var healthTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if let appearance = ProcessInfo.processInfo.environment["OLICO_DEBUG_APPEARANCE"] {
+            NSApp.appearance = NSAppearance(named: appearance == "dark" ? .darkAqua : .aqua)
+        }
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Olico")
         try? FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
@@ -152,7 +155,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.logger?.log("health: hotkey count mismatch, reloading")
                 store.conflicts = self.hotkeyCenter?.reload(config: store.config) ?? [:]
             }
-            _ = try? store.persistedConfig()
         }
     }
 }

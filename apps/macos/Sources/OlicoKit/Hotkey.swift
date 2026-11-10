@@ -20,15 +20,23 @@ public enum HotkeyFormatter {
         80: "F19", 90: "F20",
     ]
 
+    public static func keyName(for keyCode: UInt32) -> String {
+        keyNames[keyCode] ?? "Key\(keyCode)"
+    }
+
+    public static func symbol(for modifier: Modifier) -> String {
+        switch modifier {
+        case .cmd: return "⌘"
+        case .opt: return "⌥"
+        case .ctrl: return "⌃"
+        case .shift: return "⇧"
+        }
+    }
+
     public static func display(_ hotkey: Hotkey) -> String {
-        let symbols = Set(hotkey.modifiers).sorted { $0.sortOrder < $1.sortOrder }.map { modifier -> String in
-            switch modifier {
-            case .cmd: return "⌘"
-            case .opt: return "⌥"
-            case .ctrl: return "⌃"
-            case .shift: return "⇧"
-            }
-        }.joined()
-        return symbols + (keyNames[hotkey.keyCode] ?? "Key\(hotkey.keyCode)")
+        let symbols = Set(hotkey.modifiers).sorted { $0.sortOrder < $1.sortOrder }
+            .map(symbol)
+            .joined()
+        return symbols + keyName(for: hotkey.keyCode)
     }
 }

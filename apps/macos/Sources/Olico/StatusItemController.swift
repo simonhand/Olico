@@ -12,7 +12,7 @@ final class StatusItemController: NSObject {
         super.init()
 
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "command", accessibilityDescription: "Olico")
+            button.image = Self.paimonIcon()
             button.image?.isTemplate = true
         }
 
@@ -33,5 +33,16 @@ final class StatusItemController: NSObject {
 
     @objc private func quit() {
         onQuit()
+    }
+
+    private static func paimonIcon() -> NSImage? {
+        guard let url = Bundle.module.url(forResource: "paimonTemplate", withExtension: "png"),
+              let image = NSImage(contentsOf: url) else {
+            return NSImage(systemSymbolName: "command", accessibilityDescription: "Olico")
+        }
+        image.size = NSSize(width: 18, height: 18)
+        image.isTemplate = true
+        image.accessibilityDescription = "Olico"
+        return image
     }
 }

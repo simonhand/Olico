@@ -12,18 +12,38 @@ struct HotkeyRecorderView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(title).font(.headline)
-            Text(captured.map(HotkeyFormatter.display) ?? "按下新的快捷键")
-                .font(.system(size: 22, weight: .semibold, design: .monospaced))
-                .frame(maxWidth: .infinity, minHeight: 64)
-                .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .textBackgroundColor)))
+            Text(title).font(.system(size: 15, weight: .semibold))
+            VStack(spacing: 8) {
+                if let captured {
+                    Text(HotkeyFormatter.display(captured))
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundStyle(.primary)
+                } else {
+                    Image(systemName: "keyboard")
+                        .font(.system(size: 22, weight: .light))
+                        .foregroundStyle(.tertiary)
+                    Text("按下新的快捷键")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 92)
+            .background {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color.primary.opacity(0.05))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.08))
+            }
             if let errorText {
-                Text(errorText).foregroundStyle(.red).font(.caption)
+                NoticeBanner(text: errorText, isError: true)
             }
             HStack {
-                Text("Esc 取消").font(.caption).foregroundStyle(.secondary)
+                Text("Esc 取消").font(.system(size: 11)).foregroundStyle(.secondary)
                 Spacer()
                 Button("取消", action: onCancel)
+                    .buttonStyle(.bordered)
                 Button("保存") {
                     guard let captured else { return }
                     do {
@@ -32,11 +52,12 @@ struct HotkeyRecorderView: View {
                         errorText = error.localizedDescription
                     }
                 }
+                .buttonStyle(.borderedProminent)
                 .disabled(captured == nil)
             }
         }
-        .padding(20)
-        .frame(width: 380)
+        .padding(22)
+        .frame(width: 400)
         .background(KeyCaptureView(
             onCapture: { hotkey in
                 captured = hotkey
