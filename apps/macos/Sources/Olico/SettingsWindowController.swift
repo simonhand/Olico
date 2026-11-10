@@ -31,6 +31,12 @@ final class SettingsWindowController {
             window.backgroundColor = .clear
             window.isReleasedWhenClosed = false
             window.center()
+            // TEMP screenshot hook
+            if ProcessInfo.processInfo.environment["OLICO_DEBUG_TALL_WINDOW"] != nil,
+               let screen = NSScreen.screens.first {
+                window.setContentSize(NSSize(width: 960, height: 900))
+                window.setFrameOrigin(NSPoint(x: screen.frame.minX + 40, y: screen.frame.minY + 30))
+            }
             self.window = window
         }
         NSApp.activate(ignoringOtherApps: true)
