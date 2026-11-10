@@ -52,15 +52,15 @@ final class ScreenshotController {
     private func present(frame: CapturedFrame, options: ScreenshotOptions) {
         let controller = ScreenshotOverlayController()
         overlay = controller
-        let viewBounds = CGRect(origin: .zero, size: frame.screen.frame.size)
+        let scale = frame.screen.backingScaleFactor
 
         controller.present(
             image: frame.image,
             screen: frame.screen,
-            onCopy: { [weak self] selection in
+            onCopy: { [weak self] output in
                 guard let self else { return }
                 do {
-                    let cropped = try self.crop(selection, frame: frame, viewBounds: viewBounds)
+                    let cropped = try self.crop(output)
                     try self.writeToPasteboard(cropped)
                     self.logger.log("screenshot copied \(cropped.width)x\(cropped.height)")
                     self.finish()
@@ -70,11 +70,11 @@ final class ScreenshotController {
                     ScreenshotHUD.shared.show(message: "复制失败：\(error.localizedDescription)")
                 }
             },
-            onSave: { [weak self] selection in
+            onSave: { [weak self] output in
                 guard let self else { return }
                 let cropped: CGImage
                 do {
-                    cropped = try self.crop(selection, frame: frame, viewBounds: viewBounds)
+                    cropped = try self.crop(output)
                     try self.writeToPasteboard(cropped)
                 } catch {
                     self.finish()
@@ -100,23 +100,36 @@ final class ScreenshotController {
             onCancel: { [weak self] in
                 self?.logger.log("screenshot cancelled")
                 self?.finish()
+            },
+            onWindowPick: { [weak self] candidate, rect in
+                guard let self else { return }
+                self.logger.log("screenshot: pick window #\(candidate.id) \(candidate.title ?? "")")
+                Task { @MainActor in
+                    do {
+                        let image = try await ScreenCaptureService.captureWindow(
+                            id: candidate.id,
+                            scale: scale
+                        )
+                        self.overlay?.applyWindowCapture(image, rect: rect)
+                        self.logger.log("screenshot: window captured \(image.width)x\(image.height)")
+                    } catch {
+                        self.logger.log("screenshot window capture failed: \(error.localizedDescription)")
+                        self.overlay?.cancelWindowCapture()
+                    }
+                }
             }
         )
     }
 
-    private func crop(
-        _ selection: CGRect,
-        frame: CapturedFrame,
-        viewBounds: CGRect
-    ) throws -> CGImage {
+    private func crop(_ output: ScreenshotOutput) throws -> CGImage {
         guard let pixelRect = ScreenshotGeometry.pixelCropRect(
-            for: selection,
-            viewBounds: viewBounds,
-            imageSize: CGSize(width: frame.image.width, height: frame.image.height)
+            for: output.selection,
+            in: output.imageFrame,
+            imageSize: CGSize(width: output.image.width, height: output.image.height)
         ) else {
             throw ScreenshotError.emptySelection
         }
-        guard let cropped = frame.image.cropping(to: pixelRect) else {
+        guard let cropped = output.image.cropping(to: pixelRect) else {
             throw ScreenshotError.emptySelection
         }
         return cropped

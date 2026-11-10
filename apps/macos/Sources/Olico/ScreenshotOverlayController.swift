@@ -1,37 +1,63 @@
 import AppKit
 import OlicoKit
 
+struct ScreenshotOutput {
+    var selection: CGRect
+    var image: CGImage
+    var imageFrame: CGRect
+}
+
 private final class ScreenshotPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 }
 
 private final class ScreenshotOverlayView: NSView {
+    private struct WindowCapture {
+        var candidate: WindowCandidate
+        var rect: CGRect
+        var image: CGImage?
+    }
+
     private let image: NSImage
     private let imagePixelSize: CGSize
-    private let onCopy: (CGRect) -> Void
-    private let onSave: (CGRect) -> Void
+    private let backgroundImage: CGImage
+    private let screenFrame: CGRect
+    private let primaryHeight: CGFloat
+    private let onCopy: (ScreenshotOutput) -> Void
+    private let onSave: (ScreenshotOutput) -> Void
     private let onCancel: () -> Void
+    private let onWindowPick: (WindowCandidate, CGRect) -> Void
 
     private var selection: CGRect?
+    private var windowCapture: WindowCapture?
+    private var hovered: (candidate: WindowCandidate, rect: CGRect)?
+    private var candidates: [WindowCandidate] = []
+    private var lastCatalogRefresh: TimeInterval = 0
     private var dragStart: CGPoint?
     private var activeHandle: SelectionHandle?
+    private var didDrag = false
     private var pointer: CGPoint?
     private var tracking: NSTrackingArea?
 
     init(
         image cgImage: CGImage,
-        size: CGSize,
-        onCopy: @escaping (CGRect) -> Void,
-        onSave: @escaping (CGRect) -> Void,
-        onCancel: @escaping () -> Void
+        screen: NSScreen,
+        onCopy: @escaping (ScreenshotOutput) -> Void,
+        onSave: @escaping (ScreenshotOutput) -> Void,
+        onCancel: @escaping () -> Void,
+        onWindowPick: @escaping (WindowCandidate, CGRect) -> Void
     ) {
-        self.image = NSImage(cgImage: cgImage, size: size)
+        self.image = NSImage(cgImage: cgImage, size: screen.frame.size)
         self.imagePixelSize = CGSize(width: cgImage.width, height: cgImage.height)
+        self.backgroundImage = cgImage
+        self.screenFrame = screen.frame
+        self.primaryHeight = WindowCatalog.primaryHeight
         self.onCopy = onCopy
         self.onSave = onSave
         self.onCancel = onCancel
-        super.init(frame: CGRect(origin: .zero, size: size))
+        self.onWindowPick = onWindowPick
+        super.init(frame: CGRect(origin: .zero, size: screen.frame.size))
         wantsLayer = true
     }
 
@@ -70,12 +96,21 @@ private final class ScreenshotOverlayView: NSView {
         bounds.fill()
 
         if let selection {
-            context.saveGState()
-            context.clip(to: selection)
-            image.draw(in: bounds)
-            context.restoreGState()
+            if let windowCapture, let capturedImage = windowCapture.image {
+                context.saveGState()
+                context.clip(to: selection)
+                NSImage(cgImage: capturedImage, size: windowCapture.rect.size)
+                    .draw(in: windowCapture.rect)
+                context.restoreGState()
+            } else {
+                context.saveGState()
+                context.clip(to: selection)
+                image.draw(in: bounds)
+                context.restoreGState()
+            }
             drawSelection(selection)
         } else {
+            drawHoveredWindow()
             drawCrosshair()
         }
 
@@ -88,15 +123,21 @@ private final class ScreenshotOverlayView: NSView {
         border.lineWidth = 1
         border.stroke()
 
-        let pixelScaleX = imagePixelSize.width / bounds.width
-        let pixelScaleY = imagePixelSize.height / bounds.height
-        let width = Int((rect.width * pixelScaleX).rounded())
-        let height = Int((rect.height * pixelScaleY).rounded())
+        let sourceSize: CGSize
+        let sourceFrame: CGRect
+        if let windowCapture, let capturedImage = windowCapture.image {
+            sourceSize = CGSize(width: capturedImage.width, height: capturedImage.height)
+            sourceFrame = windowCapture.rect
+        } else {
+            sourceSize = imagePixelSize
+            sourceFrame = bounds
+        }
+        let scaleX = sourceSize.width / max(sourceFrame.width, 1)
+        let scaleY = sourceSize.height / max(sourceFrame.height, 1)
+        let width = Int((rect.width * scaleX).rounded())
+        let height = Int((rect.height * scaleY).rounded())
 
-        let labelCenter = CGPoint(
-            x: rect.midX,
-            y: rect.minY > 40 ? rect.minY - 16 : rect.maxY + 16
-        )
+        let labelCenter = tagCenter(for: rect)
         drawTag("\(width) × \(height)", center: labelCenter)
 
         NSColor.white.setFill()
@@ -106,6 +147,31 @@ private final class ScreenshotOverlayView: NSView {
             NSColor.black.withAlphaComponent(0.35).setStroke()
             NSBezierPath(rect: handle).stroke()
         }
+    }
+
+    private func drawHoveredWindow() {
+        guard let hovered else { return }
+        let rect = hovered.rect
+        NSColor.controlAccentColor.withAlphaComponent(0.14).setFill()
+        NSBezierPath(rect: rect).fill()
+        NSColor.controlAccentColor.setStroke()
+        let border = NSBezierPath(rect: rect.insetBy(dx: -1, dy: -1))
+        border.lineWidth = 2
+        border.stroke()
+
+        let scale = window?.backingScaleFactor ?? 2
+        let width = Int((rect.width * scale).rounded())
+        let height = Int((rect.height * scale).rounded())
+        let title = displayTitle(hovered.candidate.title)
+        drawTag("\(title)   \(width) × \(height)", center: tagCenter(for: rect))
+    }
+
+    private func tagCenter(for rect: CGRect) -> CGPoint {
+        let y = rect.minY > 40 ? rect.minY - 16 : rect.maxY + 16
+        return CGPoint(
+            x: min(max(rect.midX, bounds.minX + 100), bounds.maxX - 100),
+            y: min(max(y, bounds.minY + 20), bounds.maxY - 20)
+        )
     }
 
     private func handlePoints(for rect: CGRect) -> [SelectionHandle: CGPoint] {
@@ -134,7 +200,17 @@ private final class ScreenshotOverlayView: NSView {
     }
 
     private func drawHint() {
-        drawTag("拖拽选择区域    ↵ 复制    ⌘S 保存    Esc 取消", center: CGPoint(x: bounds.midX, y: 26))
+        drawTag(hintText(), center: CGPoint(x: bounds.midX, y: 26))
+    }
+
+    private func hintText() -> String {
+        guard selection != nil else {
+            return "单击窗口   拖拽选区   双击 / ⌘A 全屏   Esc 取消"
+        }
+        if let windowCapture, windowCapture.image == nil {
+            return "正在抓取窗口…   Esc 取消"
+        }
+        return "↵ 复制   ⌘S 保存   拖拽调整   Esc 取消"
     }
 
     private func drawTag(_ text: String, center: CGPoint) {
@@ -157,13 +233,90 @@ private final class ScreenshotOverlayView: NSView {
         )
     }
 
+    private func displayTitle(_ title: String?) -> String {
+        guard let title, !title.isEmpty else { return "窗口" }
+        let limit = 24
+        return title.count > limit ? String(title.prefix(limit)) + "…" : title
+    }
+
+    private func output() -> ScreenshotOutput? {
+        guard let selection else { return nil }
+        if let windowCapture {
+            guard let image = windowCapture.image else { return nil }
+            return ScreenshotOutput(selection: selection, image: image, imageFrame: windowCapture.rect)
+        }
+        return ScreenshotOutput(selection: selection, image: backgroundImage, imageFrame: bounds)
+    }
+
+    func applyWindowCapture(_ image: CGImage, rect: CGRect) {
+        guard var capture = windowCapture, capture.rect == rect else { return }
+        capture.image = image
+        windowCapture = capture
+        needsDisplay = true
+    }
+
+    func cancelWindowCapture() {
+        guard windowCapture != nil else { return }
+        windowCapture = nil
+        selection = nil
+        needsDisplay = true
+        if let pointer {
+            refreshHover(at: pointer, force: true)
+        }
+    }
+
+    private func refreshHover(at point: CGPoint, force: Bool = false) {
+        guard selection == nil else {
+            if hovered != nil {
+                hovered = nil
+                needsDisplay = true
+            }
+            return
+        }
+        let now = ProcessInfo.processInfo.systemUptime
+        if force || now - lastCatalogRefresh >= 0.12 {
+            candidates = WindowCatalog.candidates()
+            lastCatalogRefresh = now
+        }
+        let quartzPoint = ScreenshotGeometry.quartzPoint(
+            fromView: point,
+            screenFrame: screenFrame,
+            primaryHeight: primaryHeight
+        )
+        let picked = WindowPicker.pick(
+            at: quartzPoint,
+            from: candidates,
+            excludingPID: ProcessInfo.processInfo.processIdentifier
+        )
+        var next: (WindowCandidate, CGRect)?
+        if let picked {
+            let rect = ScreenshotGeometry.viewRect(
+                fromQuartz: picked.frame,
+                screenFrame: screenFrame,
+                primaryHeight: primaryHeight
+            )
+            if rect.width >= 1, rect.height >= 1, rect.intersects(bounds) {
+                next = (picked, rect)
+            }
+        }
+        let changed = next?.0.id != hovered?.candidate.id || next?.1 != hovered?.rect
+        hovered = next
+        if changed {
+            needsDisplay = true
+        }
+    }
+
     override func mouseMoved(with event: NSEvent) {
         pointer = convert(event.locationInWindow, from: nil)
+        if let pointer {
+            refreshHover(at: pointer)
+        }
         needsDisplay = true
     }
 
     override func mouseExited(with event: NSEvent) {
         pointer = nil
+        hovered = nil
         needsDisplay = true
     }
 
@@ -171,22 +324,34 @@ private final class ScreenshotOverlayView: NSView {
         let point = convert(event.locationInWindow, from: nil)
         if event.clickCount == 2 {
             if let selection, selection.contains(point) {
-                onCopy(selection)
-            } else {
-                selection = bounds
-                needsDisplay = true
+                if let output = output() {
+                    onCopy(output)
+                }
+                return
             }
+            selection = bounds
+            windowCapture = nil
+            hovered = nil
+            dragStart = nil
+            activeHandle = nil
+            needsDisplay = true
             return
         }
         if let selection, let handle = ScreenshotGeometry.handle(at: point, in: selection, tolerance: 8) {
             activeHandle = handle
             dragStart = point
+            didDrag = false
             return
         }
         dragStart = point
         activeHandle = nil
+        didDrag = false
         if let selection, !selection.contains(point) {
             self.selection = nil
+            windowCapture = nil
+            refreshHover(at: point, force: true)
+        } else if selection == nil {
+            refreshHover(at: point, force: true)
         }
         needsDisplay = true
     }
@@ -197,20 +362,41 @@ private final class ScreenshotOverlayView: NSView {
         if let handle = activeHandle, let current = selection {
             selection = ScreenshotGeometry.resized(current, handle: handle, to: point, within: bounds)
         } else {
-            selection = ScreenshotGeometry.clamp(
-                ScreenshotGeometry.rect(from: start, to: point),
-                to: bounds
-            )
+            if !didDrag, hypot(point.x - start.x, point.y - start.y) > 3 {
+                didDrag = true
+                windowCapture = nil
+                hovered = nil
+            }
+            if didDrag {
+                selection = ScreenshotGeometry.clamp(
+                    ScreenshotGeometry.rect(from: start, to: point),
+                    to: bounds
+                )
+            }
         }
         needsDisplay = true
     }
 
     override func mouseUp(with event: NSEvent) {
-        if let selection, selection.width < 3 || selection.height < 3 {
+        let point = convert(event.locationInWindow, from: nil)
+        if !didDrag, activeHandle == nil, selection == nil, let hovered {
+            selection = hovered.rect
+            windowCapture = WindowCapture(candidate: hovered.candidate, rect: hovered.rect, image: nil)
+            self.hovered = nil
+            dragStart = nil
+            needsDisplay = true
+            onWindowPick(hovered.candidate, hovered.rect)
+            return
+        }
+        if let selection, didDrag, selection.width < 3 || selection.height < 3 {
             self.selection = nil
         }
         dragStart = nil
         activeHandle = nil
+        didDrag = false
+        if selection == nil {
+            refreshHover(at: point)
+        }
         needsDisplay = true
     }
 
@@ -224,16 +410,23 @@ private final class ScreenshotOverlayView: NSView {
             return
         }
         if event.keyCode == 36 || event.keyCode == 76 {
-            if let selection {
-                onCopy(selection)
+            if let output = output() {
+                onCopy(output)
             }
             return
         }
-        if event.modifierFlags.contains(.command),
-           event.charactersIgnoringModifiers?.lowercased() == "s" {
-            if let selection {
-                onSave(selection)
+        let characters = event.charactersIgnoringModifiers?.lowercased()
+        if event.modifierFlags.contains(.command), characters == "s" {
+            if let output = output() {
+                onSave(output)
             }
+            return
+        }
+        if event.modifierFlags.contains(.command), characters == "a" {
+            selection = bounds
+            windowCapture = nil
+            hovered = nil
+            needsDisplay = true
             return
         }
         super.keyDown(with: event)
@@ -245,23 +438,27 @@ final class ScreenshotOverlayController: NSObject, NSWindowDelegate {
     private var panel: ScreenshotPanel?
     private var previousApp: NSRunningApplication?
     private var onCancel: (() -> Void)?
+    private var resignKeyPolicy = ResignKeyPolicy()
 
     func present(
         image: CGImage,
         screen: NSScreen,
-        onCopy: @escaping (CGRect) -> Void,
-        onSave: @escaping (CGRect) -> Void,
-        onCancel: @escaping () -> Void
+        onCopy: @escaping (ScreenshotOutput) -> Void,
+        onSave: @escaping (ScreenshotOutput) -> Void,
+        onCancel: @escaping () -> Void,
+        onWindowPick: @escaping (WindowCandidate, CGRect) -> Void
     ) {
         self.onCancel = onCancel
+        self.resignKeyPolicy = ResignKeyPolicy()
         previousApp = NSWorkspace.shared.frontmostApplication
 
         let view = ScreenshotOverlayView(
             image: image,
-            size: screen.frame.size,
+            screen: screen,
             onCopy: onCopy,
             onSave: onSave,
-            onCancel: onCancel
+            onCancel: onCancel,
+            onWindowPick: onWindowPick
         )
         let panel = ScreenshotPanel(
             contentRect: screen.frame,
@@ -288,6 +485,16 @@ final class ScreenshotOverlayController: NSObject, NSWindowDelegate {
         panel.makeFirstResponder(view)
     }
 
+    func applyWindowCapture(_ image: CGImage, rect: CGRect) {
+        guard panel != nil else { return }
+        (panel?.contentView as? ScreenshotOverlayView)?.applyWindowCapture(image, rect: rect)
+    }
+
+    func cancelWindowCapture() {
+        guard panel != nil else { return }
+        (panel?.contentView as? ScreenshotOverlayView)?.cancelWindowCapture()
+    }
+
     func dismiss() {
         guard let panel else { return }
         self.panel = nil
@@ -299,10 +506,24 @@ final class ScreenshotOverlayController: NSObject, NSWindowDelegate {
         previousApp = nil
     }
 
+    func windowDidBecomeKey(_ notification: Notification) {
+        resignKeyPolicy = ResignKeyPolicy()
+    }
+
     func windowDidResignKey(_ notification: Notification) {
         guard panel != nil else { return }
-        let cancel = onCancel
-        dismiss()
-        cancel?()
+        switch resignKeyPolicy.nextAction() {
+        case .rekey(let delay):
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self, let panel = self.panel, !panel.isKeyWindow else { return }
+                NSApp.activate(ignoringOtherApps: true)
+                panel.makeKeyAndOrderFront(nil)
+                panel.makeFirstResponder(panel.contentView)
+            }
+        case .cancel:
+            let cancel = onCancel
+            dismiss()
+            cancel?()
+        }
     }
 }

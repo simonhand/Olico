@@ -89,17 +89,55 @@ public enum ScreenshotGeometry {
         imageSize: CGSize,
         minimum: CGFloat = 1
     ) -> CGRect? {
-        guard viewBounds.width > 0, viewBounds.height > 0,
+        pixelCropRect(for: selection, in: viewBounds, imageSize: imageSize, minimum: minimum)
+    }
+
+    /// Maps a view-space selection into image pixels. `frame` is the view-space
+    /// rect the image is drawn into, so a window bitmap aligned to its own rect
+    /// crops correctly without assuming the image covers the whole overlay.
+    public static func pixelCropRect(
+        for selection: CGRect,
+        in frame: CGRect,
+        imageSize: CGSize,
+        minimum: CGFloat = 1
+    ) -> CGRect? {
+        guard frame.width > 0, frame.height > 0,
               imageSize.width > 0, imageSize.height > 0 else { return nil }
-        let clipped = clamp(selection, to: viewBounds)
+        let clipped = clamp(selection, to: frame)
         guard !clipped.isNull, clipped.width >= minimum, clipped.height >= minimum else { return nil }
-        let scaleX = imageSize.width / viewBounds.width
-        let scaleY = imageSize.height / viewBounds.height
-        let minX = max(0, ((clipped.minX - viewBounds.minX) * scaleX).rounded(.down))
-        let maxX = min(imageSize.width, ((clipped.maxX - viewBounds.minX) * scaleX).rounded(.up))
-        let minY = max(0, ((viewBounds.maxY - clipped.maxY) * scaleY).rounded(.down))
-        let maxY = min(imageSize.height, ((viewBounds.maxY - clipped.minY) * scaleY).rounded(.up))
+        let scaleX = imageSize.width / frame.width
+        let scaleY = imageSize.height / frame.height
+        let minX = max(0, ((clipped.minX - frame.minX) * scaleX).rounded(.down))
+        let maxX = min(imageSize.width, ((clipped.maxX - frame.minX) * scaleX).rounded(.up))
+        let minY = max(0, ((frame.maxY - clipped.maxY) * scaleY).rounded(.down))
+        let maxY = min(imageSize.height, ((frame.maxY - clipped.minY) * scaleY).rounded(.up))
         guard maxX > minX, maxY > minY else { return nil }
         return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+    }
+
+    /// Converts a Quartz global rect (top-left origin, y down) into overlay view
+    /// coordinates (bottom-left origin, y up).
+    public static func viewRect(
+        fromQuartz rect: CGRect,
+        screenFrame: CGRect,
+        primaryHeight: CGFloat
+    ) -> CGRect {
+        CGRect(
+            x: rect.minX - screenFrame.minX,
+            y: primaryHeight - rect.maxY - screenFrame.minY,
+            width: rect.width,
+            height: rect.height
+        )
+    }
+
+    public static func quartzPoint(
+        fromView point: CGPoint,
+        screenFrame: CGRect,
+        primaryHeight: CGFloat
+    ) -> CGPoint {
+        CGPoint(
+            x: point.x + screenFrame.minX,
+            y: primaryHeight - (point.y + screenFrame.minY)
+        )
     }
 }

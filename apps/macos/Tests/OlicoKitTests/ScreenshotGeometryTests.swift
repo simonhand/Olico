@@ -98,4 +98,61 @@ final class ScreenshotGeometryTests: XCTestCase {
         )
         XCTAssertEqual(rect, CGRect(x: 20, y: 0, width: 80, height: 60))
     }
+
+    func testPixelCropUsesOffsetImageFrame() {
+        let frame = CGRect(x: 100, y: 50, width: 200, height: 150)
+        let crop = ScreenshotGeometry.pixelCropRect(
+            for: CGRect(x: 120, y: 70, width: 40, height: 30),
+            in: frame,
+            imageSize: CGSize(width: 400, height: 300)
+        )
+        XCTAssertEqual(crop, CGRect(x: 40, y: 200, width: 80, height: 60))
+    }
+
+    func testPixelCropAcceptsWholeWindowFrame() {
+        let frame = CGRect(x: 100, y: 50, width: 200, height: 150)
+        let crop = ScreenshotGeometry.pixelCropRect(
+            for: frame,
+            in: frame,
+            imageSize: CGSize(width: 400, height: 300)
+        )
+        XCTAssertEqual(crop, CGRect(x: 0, y: 0, width: 400, height: 300))
+    }
+
+    func testPixelCropClampsSelectionOutsideImageFrame() {
+        let frame = CGRect(x: 100, y: 50, width: 200, height: 150)
+        let crop = ScreenshotGeometry.pixelCropRect(
+            for: CGRect(x: 0, y: 0, width: 120, height: 80),
+            in: frame,
+            imageSize: CGSize(width: 400, height: 300)
+        )
+        XCTAssertEqual(crop, CGRect(x: 0, y: 240, width: 40, height: 60))
+    }
+
+    func testQuartzRectConvertsToViewCoords() {
+        let rect = ScreenshotGeometry.viewRect(
+            fromQuartz: CGRect(x: 100, y: 100, width: 200, height: 100),
+            screenFrame: CGRect(x: 0, y: 0, width: 1000, height: 1000),
+            primaryHeight: 1000
+        )
+        XCTAssertEqual(rect, CGRect(x: 100, y: 800, width: 200, height: 100))
+    }
+
+    func testQuartzRectConvertsOnLeftDisplay() {
+        let rect = ScreenshotGeometry.viewRect(
+            fromQuartz: CGRect(x: -2400, y: 300, width: 300, height: 200),
+            screenFrame: CGRect(x: -2560, y: -458, width: 2560, height: 1440),
+            primaryHeight: 982
+        )
+        XCTAssertEqual(rect, CGRect(x: 160, y: 940, width: 300, height: 200))
+    }
+
+    func testQuartzPointConvertsBackFromViewCoords() {
+        let point = ScreenshotGeometry.quartzPoint(
+            fromView: CGPoint(x: 160, y: 940),
+            screenFrame: CGRect(x: -2560, y: -458, width: 2560, height: 1440),
+            primaryHeight: 982
+        )
+        XCTAssertEqual(point, CGPoint(x: -2400, y: 500))
+    }
 }

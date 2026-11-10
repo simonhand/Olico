@@ -21,6 +21,8 @@ public final class AppCatalog {
             URL(fileURLWithPath: "/System/Applications"),
             URL(fileURLWithPath: "/Applications/Utilities"),
             home.appendingPathComponent("Applications"),
+            URL(fileURLWithPath: "/System/Library/CoreServices/Finder.app"),
+            URL(fileURLWithPath: "/System/Library/CoreServices/Applications"),
         ]
     }
 
@@ -50,6 +52,14 @@ public final class AppCatalog {
 
         for root in roots {
             guard FileManager.default.fileExists(atPath: root.path) else { continue }
+            if root.pathExtension == "app" {
+                if let entry = makeEntry(at: root) {
+                    entries.append(entry)
+                    indexByBundleID[entry.bundleID] = entries.count - 1
+                    depthByBundleID[entry.bundleID] = 0
+                }
+                continue
+            }
             guard let enumerator = FileManager.default.enumerator(
                 at: root,
                 includingPropertiesForKeys: [.isDirectoryKey],

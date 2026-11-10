@@ -5,6 +5,7 @@ import ScreenCaptureKit
 enum ScreenCaptureError: LocalizedError {
     case permissionDenied
     case noDisplay
+    case windowUnavailable
     case captureFailed(String)
 
     var errorDescription: String? {
@@ -13,6 +14,8 @@ enum ScreenCaptureError: LocalizedError {
             return "没有屏幕录制权限"
         case .noDisplay:
             return "找不到可截图的显示器"
+        case .windowUnavailable:
+            return "找不到目标窗口"
         case .captureFailed(let message):
             return "抓取屏幕失败：\(message)"
         }
@@ -63,6 +66,35 @@ enum ScreenCaptureService {
                 configuration: configuration
             )
             return CapturedFrame(image: image, screen: screen)
+        } catch {
+            throw ScreenCaptureError.captureFailed(error.localizedDescription)
+        }
+    }
+
+    static func captureWindow(id: UInt32, scale: CGFloat) async throws -> CGImage {
+        guard CGPreflightScreenCaptureAccess() else {
+            throw ScreenCaptureError.permissionDenied
+        }
+        let content: SCShareableContent
+        do {
+            content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        } catch {
+            throw ScreenCaptureError.captureFailed(error.localizedDescription)
+        }
+        guard let window = content.windows.first(where: { $0.windowID == id }) else {
+            throw ScreenCaptureError.windowUnavailable
+        }
+        let filter = SCContentFilter(desktopIndependentWindow: window)
+        let configuration = SCStreamConfiguration()
+        configuration.width = Int((window.frame.width * scale).rounded())
+        configuration.height = Int((window.frame.height * scale).rounded())
+        configuration.showsCursor = false
+        configuration.captureResolution = .best
+        do {
+            return try await SCScreenshotManager.captureImage(
+                contentFilter: filter,
+                configuration: configuration
+            )
         } catch {
             throw ScreenCaptureError.captureFailed(error.localizedDescription)
         }

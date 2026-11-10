@@ -47,4 +47,19 @@ final class AppCatalogTests: XCTestCase {
         let catalog = AppCatalog(roots: [root], maxDepth: 3, ttl: 60)
         XCTAssertEqual(catalog.scan(force: true).first?.name, "NoName")
     }
+
+    func testAppBundlePathCanBeUsedAsRoot() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try makeApp(root: root, relative: "Finderish.app", bundleID: "com.example.finderish", name: "Finderish")
+        let app = root.appendingPathComponent("Finderish.app")
+        let catalog = AppCatalog(roots: [app], maxDepth: 3, ttl: 60)
+        let apps = catalog.scan(force: true)
+        XCTAssertEqual(apps.map(\.bundleID), ["com.example.finderish"])
+    }
+
+    func testDefaultRootsIncludeCoreServicesApps() {
+        XCTAssertTrue(AppCatalog.defaultRoots.contains(URL(fileURLWithPath: "/System/Library/CoreServices/Finder.app")))
+        XCTAssertTrue(AppCatalog.defaultRoots.contains(URL(fileURLWithPath: "/System/Library/CoreServices/Applications")))
+    }
 }
