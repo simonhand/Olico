@@ -1,0 +1,4 @@
+module COlicoFFI {
+    header "olico.h"
+    export *
+}

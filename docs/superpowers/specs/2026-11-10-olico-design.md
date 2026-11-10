@@ -638,19 +638,19 @@ launchd 拉起 → 单实例检查 → 读取配置与数据库 → 注册热键
 
 ### 12.2 本地构建
 
-1. `scripts/build-macos.sh`：分别构建 `aarch64-apple-darwin` 与 `x86_64-apple-darwin` 静态库 → `lipo` 合并。
-2. XcodeGen 生成工程 → `xcodebuild ARCHS="arm64 x86_64"`。
-3. 签名（固定自签名证书）→ `create-dmg`。
+1. `scripts/build-macos.sh`：设置 `MACOSX_DEPLOYMENT_TARGET=14.0`，构建宿主机架构静态库并复制到 `apps/macos/Vendor`（`--universal` 时分别构建 `aarch64-apple-darwin` 与 `x86_64-apple-darwin` 后 `lipo` 合并）。
+2. `swift build` 生成可执行文件，脚本组装 `build/Olico.app` 并写入 `Info.plist`（`--universal` 时 `swift build --arch arm64 --arch x86_64`）。
+3. `codesign`（默认 ad-hoc，可用 `CODESIGN_IDENTITY` 指定固定自签名证书）→ `create-dmg`。
 
 ### 12.3 CI
 
-- `ci.yml`（PR 与主分支，`macos-14`）：`cargo fmt --check`、`cargo clippy -D warnings`、`cargo test`、`xcodebuild build`（不签名）。
+- `ci.yml`（PR 与主分支，`macos-14`）：`cargo fmt --check`、`cargo clippy -D warnings`、`cargo test`、`swift build`（不签名）。
 - 发布流水线在需要对外分发时再增加；本期自用可本地出包。
-- 缓存 Rust 与 DerivedData。
+- 缓存 Rust `target/` 与 SPM `.build/`。
 
 ### 12.4 版本号
 
-根 `VERSION` 经 `scripts/version-sync.sh` 同步到 `Cargo.toml`、`project.yml`、`Info.plist`。
+根 `VERSION` 由 `scripts/build-macos.sh` 注入 `Info.plist`；Rust 版本以 `Cargo.toml` workspace 为准，发布前手工保持一致。
 
 ## 13. 测试
 
