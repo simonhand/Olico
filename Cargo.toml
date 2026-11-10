@@ -1,0 +1,19 @@
+[workspace]
+resolver = "2"
+members = ["crates/olico-core", "crates/olico-ffi"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+rust-version = "1.80"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+sha2 = "0.10"
+nucleo-matcher = "0.3"
+uuid = { version = "1", features = ["v4"] }
+thiserror = "2"
+tempfile = "3"
