@@ -95,7 +95,10 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate {
     private let logger: AppLogger
     private var panel: ClipboardPanel?
     private var keyMonitor: Any?
-    private weak var previousApp: NSRunningApplication?
+    // Must be strong: NSWorkspace drops its NSRunningApplication instance for
+    // an app as soon as it stops being frontmost, which happens right after we
+    // activate the panel. A weak reference goes nil before the user hits Enter.
+    private var previousApp: NSRunningApplication?
     private var shownAt = Date.distantPast
 
     init(client: CoreClient, logger: AppLogger) {
@@ -131,7 +134,7 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate {
         panel.orderFrontRegardless()
         panel.makeKeyAndOrderFront(nil)
         shownAt = Date()
-        logger.log("clipboard panel show")
+        logger.log("clipboard panel show prev=\(previousApp?.bundleIdentifier ?? "nil")")
     }
 
     func hidePanel(reactivatePrevious: Bool = false) {
@@ -209,6 +212,7 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate {
             return
         }
         guard AXIsProcessTrusted() else {
+            logger.log("clipboard paste: accessibility not trusted, copied only")
             viewModel.showToast("已复制，切换到目标窗口按 ⌘V 粘贴（授权辅助功能后可自动粘贴）")
             let previous = previousApp
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.1) { [weak self] in
@@ -218,9 +222,11 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate {
             return
         }
         guard let target = previousApp else {
+            logger.log("clipboard paste: no target app, copied only")
             viewModel.showToast("已复制到剪贴板")
             return
         }
+        logger.log("clipboard paste: target=\(target.bundleIdentifier ?? "unknown")")
         hidePanel()
         pasteWhenActive(target, attemptsLeft: 8)
     }
@@ -275,6 +281,7 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate {
         // Activation settles asynchronously; ignore the transient resign that
         // happens while the panel is still coming to front.
         guard Date().timeIntervalSince(shownAt) > 0.5 else { return }
+        logger.log("clipboard panel resign key")
         hidePanel(reactivatePrevious: false)
     }
 }

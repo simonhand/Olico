@@ -35,9 +35,15 @@ for bundle in "$BIN_DIR"/*.bundle; do
 done
 sed "s/__VERSION__/$VERSION/g" "$ROOT/apps/macos/Resources/Info.plist" > "$APP/Contents/Info.plist"
 
+BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Contents/Info.plist")"
+
 if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
   codesign --force --options runtime --sign "$CODESIGN_IDENTITY" "$APP"
 else
-  codesign --force --sign - "$APP"
+  # TCC keys grants to the designated requirement. Ad-hoc signing defaults to
+  # a cdhash requirement that changes on every rebuild, so user-granted
+  # Accessibility/Screen Recording permission silently stops matching. Pin the
+  # requirement to the bundle identifier so grants survive rebuilds.
+  codesign --force --sign - -r "=designated => identifier \"$BUNDLE_ID\"" "$APP"
 fi
 echo "Built $APP"

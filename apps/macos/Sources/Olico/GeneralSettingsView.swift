@@ -67,12 +67,17 @@ struct GeneralSettingsView: View {
                 permissionRow(
                     title: "辅助功能",
                     granted: AXIsProcessTrusted(),
+                    request: {
+                        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
+                        _ = AXIsProcessTrustedWithOptions(options as CFDictionary)
+                    },
                     settingsURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
                 )
                 SettingsDivider()
                 permissionRow(
                     title: "屏幕录制",
                     granted: CGPreflightScreenCaptureAccess(),
+                    request: { _ = CGRequestScreenCaptureAccess() },
                     settingsURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
                 )
                 Divider().padding(.leading, 16)
@@ -175,11 +180,19 @@ struct GeneralSettingsView: View {
         agentEnabled = launchAgent.isEnabled()
     }
 
-    private func permissionRow(title: String, granted: Bool, settingsURL: String) -> some View {
+    private func permissionRow(
+        title: String,
+        granted: Bool,
+        request: @escaping () -> Void,
+        settingsURL: String
+    ) -> some View {
         SettingsRow(title) {
             HStack(spacing: 10) {
                 StatusPill(text: granted ? "已授权" : "未授权", color: granted ? .green : .orange)
                 Button("打开系统设置") {
+                    // Ask the system first so Olico is registered in the pane;
+                    // after a TCC reset the app is absent from the list.
+                    if !granted { request() }
                     if let url = URL(string: settingsURL) {
                         NSWorkspace.shared.open(url)
                     }
