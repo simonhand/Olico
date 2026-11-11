@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var clipboardMonitor: ClipboardMonitor?
     private var clipboardPanel: ClipboardPanelController?
     private var screenshotController: ScreenshotController?
+    private var colorPickerController: ColorPickerController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -69,6 +70,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let screenshotController = ScreenshotController(logger: logger)
             self.screenshotController = screenshotController
 
+            let colorPickerController = ColorPickerController(logger: logger)
+            self.colorPickerController = colorPickerController
+
             center.onAction = { action in
                 switch action {
                 case .app(let target, let path):
@@ -89,6 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     clipboardPanel.toggle()
                 case .builtin(.colorPicker):
                     logger.log("hotkey: color picker requested")
+                    colorPickerController.start(config: store.config)
                 case .builtin(.togglePins):
                     logger.log("hotkey: toggle pins requested")
                 case .link(let id):
