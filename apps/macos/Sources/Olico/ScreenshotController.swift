@@ -122,14 +122,19 @@ final class ScreenshotController {
     }
 
     private func crop(_ output: ScreenshotOutput) throws -> CGImage {
+        let source = AnnotationRenderer.render(
+            output.image,
+            imageFrame: output.imageFrame,
+            annotations: output.annotations
+        )
         guard let pixelRect = ScreenshotGeometry.pixelCropRect(
             for: output.selection,
             in: output.imageFrame,
-            imageSize: CGSize(width: output.image.width, height: output.image.height)
+            imageSize: CGSize(width: source.width, height: source.height)
         ) else {
             throw ScreenshotError.emptySelection
         }
-        guard let cropped = output.image.cropping(to: pixelRect) else {
+        guard let cropped = source.cropping(to: pixelRect) else {
             throw ScreenshotError.emptySelection
         }
         return cropped

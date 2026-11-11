@@ -5,11 +5,132 @@ struct ScreenshotOutput {
     var selection: CGRect
     var image: CGImage
     var imageFrame: CGRect
+    var annotations: [Annotation] = []
 }
 
 private final class ScreenshotPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+}
+
+private final class ScreenshotToolbar: NSVisualEffectView {
+    var onSelectTool: ((AnnotationTool) -> Void)?
+    var onUndo: (() -> Void)?
+    var onCopy: (() -> Void)?
+    var onSave: (() -> Void)?
+    var onCancel: (() -> Void)?
+
+    private var toolButtons: [AnnotationTool: NSButton] = [:]
+    private let undoButton = ScreenshotToolbar.makeButton(symbol: "arrow.uturn.backward", tooltip: "撤销 ⌘Z")
+    private let copyButton = ScreenshotToolbar.makeButton(symbol: "doc.on.doc", tooltip: "复制 ↵")
+    private let saveButton = ScreenshotToolbar.makeButton(symbol: "square.and.arrow.down", tooltip: "保存 ⌘S")
+    private let cancelButton = ScreenshotToolbar.makeButton(symbol: "xmark", tooltip: "取消 Esc")
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        material = .hudWindow
+        blendingMode = .withinWindow
+        state = .active
+        wantsLayer = true
+        layer?.cornerRadius = 10
+        layer?.masksToBounds = true
+
+        let stack = NSStackView()
+        stack.orientation = .horizontal
+        stack.spacing = 2
+        stack.edgeInsets = NSEdgeInsets(top: 4, left: 6, bottom: 4, right: 6)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stack.topAnchor.constraint(equalTo: topAnchor),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+
+        for (tool, symbol, title) in Self.tools {
+            let button = Self.makeButton(symbol: symbol, tooltip: title)
+            button.tag = AnnotationTool.allCases.firstIndex(of: tool) ?? 0
+            button.target = self
+            button.action = #selector(selectTool(_:))
+            toolButtons[tool] = button
+            stack.addArrangedSubview(button)
+        }
+        if let mosaic = toolButtons[.mosaic] {
+            stack.setCustomSpacing(8, after: mosaic)
+        }
+
+        undoButton.target = self
+        undoButton.action = #selector(undoPressed)
+        copyButton.target = self
+        copyButton.action = #selector(copyPressed)
+        saveButton.target = self
+        saveButton.action = #selector(savePressed)
+        cancelButton.target = self
+        cancelButton.action = #selector(cancelPressed)
+        for button in [undoButton, copyButton, saveButton, cancelButton] {
+            stack.addArrangedSubview(button)
+        }
+        stack.setCustomSpacing(8, after: undoButton)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    private static let tools: [(AnnotationTool, String, String)] = [
+        (.arrow, "arrow.up.right", "箭头"),
+        (.pen, "pencil.tip", "钢笔"),
+        (.mosaic, "square.grid.3x3.fill", "马赛克"),
+    ]
+
+    private static func makeButton(symbol: String, tooltip: String) -> NSButton {
+        let button = NSButton()
+        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: tooltip)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 13, weight: .medium))
+        button.imagePosition = .imageOnly
+        button.imageScaling = .scaleProportionallyDown
+        button.isBordered = false
+        button.bezelStyle = .regularSquare
+        button.contentTintColor = .white
+        button.toolTip = tooltip
+        button.refusesFirstResponder = true
+        button.wantsLayer = true
+        button.layer?.cornerRadius = 6
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.widthAnchor.constraint(equalToConstant: 28).isActive = true
+        button.heightAnchor.constraint(equalToConstant: 28).isActive = true
+        return button
+    }
+
+    func update(activeTool: AnnotationTool?, canAnnotate: Bool, canUndo: Bool, canExport: Bool) {
+        for (tool, button) in toolButtons {
+            button.isEnabled = canAnnotate
+            button.layer?.backgroundColor = tool == activeTool && canAnnotate
+                ? NSColor.controlAccentColor.withAlphaComponent(0.55).cgColor
+                : NSColor.clear.cgColor
+            button.contentTintColor = NSColor.white.withAlphaComponent(canAnnotate ? 0.95 : 0.3)
+        }
+        undoButton.isEnabled = canUndo
+        undoButton.contentTintColor = NSColor.white.withAlphaComponent(canUndo ? 0.95 : 0.3)
+        for button in [copyButton, saveButton] {
+            button.isEnabled = canExport
+            button.contentTintColor = NSColor.white.withAlphaComponent(canExport ? 0.95 : 0.3)
+        }
+        cancelButton.isEnabled = true
+    }
+
+    @objc private func selectTool(_ sender: NSButton) {
+        let tools = AnnotationTool.allCases
+        guard tools.indices.contains(sender.tag) else { return }
+        onSelectTool?(tools[sender.tag])
+    }
+
+    @objc private func undoPressed() { onUndo?() }
+    @objc private func copyPressed() { onCopy?() }
+    @objc private func savePressed() { onSave?() }
+    @objc private func cancelPressed() { onCancel?() }
 }
 
 private final class ScreenshotOverlayView: NSView {
@@ -39,6 +160,12 @@ private final class ScreenshotOverlayView: NSView {
     private var didDrag = false
     private var pointer: CGPoint?
     private var tracking: NSTrackingArea?
+    private let toolbar = ScreenshotToolbar()
+    private var annotations: [Annotation] = []
+    private var activeTool: AnnotationTool?
+    private var strokeTool: AnnotationTool?
+    private var strokePoints: [CGPoint] = []
+    private var mosaicCache: (source: CGImage, frame: CGRect, image: CGImage)?
 
     init(
         image cgImage: CGImage,
@@ -59,6 +186,24 @@ private final class ScreenshotOverlayView: NSView {
         self.onWindowPick = onWindowPick
         super.init(frame: CGRect(origin: .zero, size: screen.frame.size))
         wantsLayer = true
+
+        addSubview(toolbar)
+        toolbar.onSelectTool = { [weak self] tool in
+            guard let self else { return }
+            self.activeTool = self.activeTool == tool ? nil : tool
+            self.refreshToolbar()
+        }
+        toolbar.onUndo = { [weak self] in self?.undo() }
+        toolbar.onCopy = { [weak self] in
+            guard let self, let output = self.output() else { return }
+            self.onCopy(output)
+        }
+        toolbar.onSave = { [weak self] in
+            guard let self, let output = self.output() else { return }
+            self.onSave(output)
+        }
+        toolbar.onCancel = { [weak self] in self?.onCancel() }
+        refreshToolbar()
     }
 
     @available(*, unavailable)
@@ -88,6 +233,17 @@ private final class ScreenshotOverlayView: NSView {
         tracking = area
     }
 
+    override func layout() {
+        super.layout()
+        let size = toolbar.fittingSize
+        toolbar.frame = CGRect(
+            x: (bounds.width - size.width) / 2,
+            y: 52,
+            width: size.width,
+            height: size.height
+        )
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
 
@@ -108,6 +264,7 @@ private final class ScreenshotOverlayView: NSView {
                 image.draw(in: bounds)
                 context.restoreGState()
             }
+            drawAnnotations(in: selection)
             drawSelection(selection)
         } else {
             drawHoveredWindow()
@@ -115,6 +272,137 @@ private final class ScreenshotOverlayView: NSView {
         }
 
         drawHint()
+    }
+
+    private var previewAnnotation: Annotation? {
+        guard let strokeTool, !strokePoints.isEmpty else { return nil }
+        switch strokeTool {
+        case .arrow:
+            guard strokePoints.count >= 2 else { return nil }
+            return Annotation(kind: .arrow(start: strokePoints[0], end: strokePoints[1]))
+        case .pen:
+            return Annotation(kind: .pen(points: strokePoints))
+        case .mosaic:
+            return Annotation(kind: .mosaic(points: strokePoints))
+        }
+    }
+
+    private func drawAnnotations(in rect: CGRect) {
+        guard !annotations.isEmpty || previewAnnotation != nil else { return }
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        NSGraphicsContext.saveGraphicsState()
+        NSBezierPath(rect: rect).addClip()
+        for annotation in annotations {
+            drawAnnotation(annotation, in: context)
+        }
+        if let previewAnnotation {
+            drawAnnotation(previewAnnotation, in: context)
+        }
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
+    private func drawAnnotation(_ annotation: Annotation, in context: CGContext) {
+        let color = NSColor(cgColor: AnnotationStyle.color) ?? .systemRed
+        switch annotation.kind {
+        case .arrow(let start, let end):
+            drawArrow(from: start, to: end, color: color)
+        case .pen(let points):
+            guard let first = points.first else { return }
+            color.setStroke()
+            color.setFill()
+            let path = NSBezierPath()
+            path.lineWidth = AnnotationStyle.lineWidth
+            path.lineCapStyle = .round
+            path.lineJoinStyle = .round
+            if points.count == 1 {
+                path.appendOval(in: CGRect(
+                    x: first.x - AnnotationStyle.lineWidth / 2,
+                    y: first.y - AnnotationStyle.lineWidth / 2,
+                    width: AnnotationStyle.lineWidth,
+                    height: AnnotationStyle.lineWidth
+                ))
+                path.fill()
+            } else {
+                path.move(to: first)
+                for point in points.dropFirst() {
+                    path.line(to: point)
+                }
+                path.stroke()
+            }
+        case .mosaic(let points):
+            guard let first = points.first, let mosaic = mosaicImage() else { return }
+            let path = NSBezierPath()
+            if points.count == 1 {
+                path.appendOval(in: CGRect(
+                    x: first.x - AnnotationStyle.mosaicWidth / 2,
+                    y: first.y - AnnotationStyle.mosaicWidth / 2,
+                    width: AnnotationStyle.mosaicWidth,
+                    height: AnnotationStyle.mosaicWidth
+                ))
+            } else {
+                path.move(to: first)
+                for point in points.dropFirst() {
+                    path.line(to: point)
+                }
+            }
+            path.lineWidth = AnnotationStyle.mosaicWidth
+            path.lineCapStyle = .round
+            path.lineJoinStyle = .round
+            context.saveGState()
+            context.addPath(path.cgPath)
+            context.replacePathWithStrokedPath()
+            context.clip()
+            NSImage(cgImage: mosaic.image, size: mosaic.frame.size).draw(in: mosaic.frame)
+            context.restoreGState()
+        }
+    }
+
+    private func drawArrow(from start: CGPoint, to end: CGPoint, color: NSColor) {
+        let dx = end.x - start.x
+        let dy = end.y - start.y
+        let length = hypot(dx, dy)
+        guard length > 0.5 else { return }
+        let ux = dx / length
+        let uy = dy / length
+        let head = min(max(AnnotationStyle.lineWidth * 4, length * 0.3), length)
+        let base = CGPoint(x: end.x - ux * head, y: end.y - uy * head)
+
+        color.setStroke()
+        let shaft = NSBezierPath()
+        shaft.lineWidth = AnnotationStyle.lineWidth
+        shaft.lineCapStyle = .round
+        shaft.move(to: start)
+        shaft.line(to: base)
+        shaft.stroke()
+
+        let spread = head * 0.45
+        let left = CGPoint(x: base.x - uy * spread, y: base.y + ux * spread)
+        let right = CGPoint(x: base.x + uy * spread, y: base.y - ux * spread)
+        color.setFill()
+        let headPath = NSBezierPath()
+        headPath.move(to: end)
+        headPath.line(to: left)
+        headPath.line(to: right)
+        headPath.close()
+        headPath.fill()
+    }
+
+    private func mosaicImage() -> (image: CGImage, frame: CGRect)? {
+        let source: CGImage
+        let frame: CGRect
+        if let windowCapture, let captured = windowCapture.image {
+            source = captured
+            frame = windowCapture.rect
+        } else {
+            source = backgroundImage
+            frame = bounds
+        }
+        if let cache = mosaicCache, cache.source === source, cache.frame == frame {
+            return (cache.image, frame)
+        }
+        guard let pixelated = AnnotationRenderer.pixelated(source) else { return nil }
+        mosaicCache = (source, frame, pixelated)
+        return (pixelated, frame)
     }
 
     private func drawSelection(_ rect: CGRect) {
@@ -210,7 +498,48 @@ private final class ScreenshotOverlayView: NSView {
         if let windowCapture, windowCapture.image == nil {
             return "正在抓取窗口…   Esc 取消"
         }
-        return "↵ 复制   ⌘S 保存   拖拽调整   Esc 取消"
+        if let activeTool {
+            return "\(toolTitle(activeTool))：拖拽标注   再点工具退出   ⌘Z 撤销   ↵ 复制   Esc 取消"
+        }
+        return "↵ 复制   ⌘S 保存   选择工具标注   Esc 取消"
+    }
+
+    private func toolTitle(_ tool: AnnotationTool) -> String {
+        switch tool {
+        case .arrow: return "箭头"
+        case .pen: return "钢笔"
+        case .mosaic: return "马赛克"
+        }
+    }
+
+    private func refreshToolbar() {
+        toolbar.isHidden = selection == nil
+        toolbar.update(
+            activeTool: activeTool,
+            canAnnotate: selection != nil,
+            canUndo: !annotations.isEmpty,
+            canExport: selection != nil
+        )
+        needsDisplay = true
+    }
+
+    private func clearAnnotations() {
+        annotations = []
+        strokeTool = nil
+        strokePoints = []
+    }
+
+    private func undo() {
+        guard !annotations.isEmpty else { return }
+        annotations.removeLast()
+        refreshToolbar()
+    }
+
+    private func clamp(_ point: CGPoint, to rect: CGRect) -> CGPoint {
+        CGPoint(
+            x: min(max(point.x, rect.minX), rect.maxX),
+            y: min(max(point.y, rect.minY), rect.maxY)
+        )
     }
 
     private func drawTag(_ text: String, center: CGPoint) {
@@ -243,15 +572,26 @@ private final class ScreenshotOverlayView: NSView {
         guard let selection else { return nil }
         if let windowCapture {
             guard let image = windowCapture.image else { return nil }
-            return ScreenshotOutput(selection: selection, image: image, imageFrame: windowCapture.rect)
+            return ScreenshotOutput(
+                selection: selection,
+                image: image,
+                imageFrame: windowCapture.rect,
+                annotations: annotations
+            )
         }
-        return ScreenshotOutput(selection: selection, image: backgroundImage, imageFrame: bounds)
+        return ScreenshotOutput(
+            selection: selection,
+            image: backgroundImage,
+            imageFrame: bounds,
+            annotations: annotations
+        )
     }
 
     func applyWindowCapture(_ image: CGImage, rect: CGRect) {
         guard var capture = windowCapture, capture.rect == rect else { return }
         capture.image = image
         windowCapture = capture
+        mosaicCache = nil
         needsDisplay = true
     }
 
@@ -259,6 +599,9 @@ private final class ScreenshotOverlayView: NSView {
         guard windowCapture != nil else { return }
         windowCapture = nil
         selection = nil
+        clearAnnotations()
+        mosaicCache = nil
+        refreshToolbar()
         needsDisplay = true
         if let pointer {
             refreshHover(at: pointer, force: true)
@@ -334,6 +677,8 @@ private final class ScreenshotOverlayView: NSView {
             hovered = nil
             dragStart = nil
             activeHandle = nil
+            clearAnnotations()
+            refreshToolbar()
             needsDisplay = true
             return
         }
@@ -343,13 +688,24 @@ private final class ScreenshotOverlayView: NSView {
             didDrag = false
             return
         }
+        if activeTool != nil, let selection, selection.contains(point) {
+            strokeTool = activeTool
+            strokePoints = [clamp(point, to: selection)]
+            dragStart = nil
+            activeHandle = nil
+            didDrag = false
+            needsDisplay = true
+            return
+        }
         dragStart = point
         activeHandle = nil
         didDrag = false
         if let selection, !selection.contains(point) {
             self.selection = nil
             windowCapture = nil
+            clearAnnotations()
             refreshHover(at: point, force: true)
+            refreshToolbar()
         } else if selection == nil {
             refreshHover(at: point, force: true)
         }
@@ -357,8 +713,27 @@ private final class ScreenshotOverlayView: NSView {
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard let start = dragStart else { return }
         let point = convert(event.locationInWindow, from: nil)
+        if strokeTool != nil {
+            guard let selection else { return }
+            let clamped = clamp(point, to: selection)
+            if strokeTool == .arrow {
+                if strokePoints.count >= 2 {
+                    strokePoints[1] = clamped
+                } else {
+                    strokePoints.append(clamped)
+                }
+            } else if let last = strokePoints.last {
+                if hypot(clamped.x - last.x, clamped.y - last.y) >= 1 {
+                    strokePoints.append(clamped)
+                }
+            } else {
+                strokePoints.append(clamped)
+            }
+            needsDisplay = true
+            return
+        }
+        guard let start = dragStart else { return }
         if let handle = activeHandle, let current = selection {
             selection = ScreenshotGeometry.resized(current, handle: handle, to: point, within: bounds)
         } else {
@@ -366,6 +741,7 @@ private final class ScreenshotOverlayView: NSView {
                 didDrag = true
                 windowCapture = nil
                 hovered = nil
+                clearAnnotations()
             }
             if didDrag {
                 selection = ScreenshotGeometry.clamp(
@@ -379,11 +755,40 @@ private final class ScreenshotOverlayView: NSView {
 
     override func mouseUp(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        if let tool = strokeTool {
+            let points = strokePoints
+            strokeTool = nil
+            strokePoints = []
+            var annotation: Annotation?
+            switch tool {
+            case .arrow:
+                if points.count >= 2,
+                   hypot(points[1].x - points[0].x, points[1].y - points[0].y) >= 3 {
+                    annotation = Annotation(kind: .arrow(start: points[0], end: points[1]))
+                }
+            case .pen:
+                if !points.isEmpty {
+                    annotation = Annotation(kind: .pen(points: points))
+                }
+            case .mosaic:
+                if !points.isEmpty {
+                    annotation = Annotation(kind: .mosaic(points: points))
+                }
+            }
+            if let annotation {
+                annotations.append(annotation)
+            }
+            refreshToolbar()
+            needsDisplay = true
+            return
+        }
         if !didDrag, activeHandle == nil, selection == nil, let hovered {
             selection = hovered.rect
             windowCapture = WindowCapture(candidate: hovered.candidate, rect: hovered.rect, image: nil)
             self.hovered = nil
             dragStart = nil
+            clearAnnotations()
+            refreshToolbar()
             needsDisplay = true
             onWindowPick(hovered.candidate, hovered.rect)
             return
@@ -397,6 +802,7 @@ private final class ScreenshotOverlayView: NSView {
         if selection == nil {
             refreshHover(at: point)
         }
+        refreshToolbar()
         needsDisplay = true
     }
 
@@ -422,10 +828,16 @@ private final class ScreenshotOverlayView: NSView {
             }
             return
         }
+        if event.modifierFlags.contains(.command), characters == "z" {
+            undo()
+            return
+        }
         if event.modifierFlags.contains(.command), characters == "a" {
             selection = bounds
             windowCapture = nil
             hovered = nil
+            clearAnnotations()
+            refreshToolbar()
             needsDisplay = true
             return
         }
